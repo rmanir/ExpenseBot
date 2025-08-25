@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pkl
+*.db
+
+# Virtual environment
+.venv/
+env/
+venv/
+ENV/
+
+# VS Code & IDEs
+.vscode/
+.idea/
+
+# Environment & Secrets
+.env
+.env.*
+service_account.json
+*.pem
+*.key
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Pytest / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
