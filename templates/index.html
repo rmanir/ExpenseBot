@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>GPay Expense Bot UI</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 50px; text-align: center; }
+    button { padding: 12px 24px; font-size: 16px; cursor: pointer; margin: 10px; }
+    #status { margin-top: 20px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>💸 GPay Expense Bot</h1>
+  <button onclick="startBot()">▶ Start Bot</button>
+  <button onclick="stopBot()">⏹ Stop Bot</button>
+  <p id="status"></p>
+
+  <script>
+    async function startBot() {
+      const res = await fetch("/start-bot", { method: "POST" });
+      const data = await res.json();
+      updateStatus(data.status);
+    }
+
+    async function stopBot() {
+      const res = await fetch("/stop-bot", { method: "POST" });
+      const data = await res.json();
+      updateStatus(data.status);
+    }
+
+    function updateStatus(status) {
+      let text = "";
+      if (status === "started") text = "✅ Bot Started!";
+      else if (status === "already running") text = "⚠️ Bot Already Running!";
+      else if (status === "stopped") text = "🛑 Bot Stopped!";
+      else if (status === "not running") text = "ℹ️ Bot Not Running!";
+      else text = "❌ Unknown State";
+      document.getElementById("status").textContent = text;
+    }
+  </script>
+</body>
+</html>
