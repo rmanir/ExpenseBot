@@ -1,171 +1,154 @@
-# 💸 GPay Expense Bot (Telegram) — Tag-Based Logger
+# 💸 GPay Expense Bot (Telegram) — Dual-Format Logger 🚀
 
-A lightweight Telegram bot 🤖 that logs expenses to **Google Sheets** 📊 using a compact, human-friendly tagged message.
+A **lightweight** Telegram bot 🤖 that logs expenses to **Google Sheets** 📊 using **two** flexible input formats:
 
-```text
-a <amount> n <notes> t <type>
-```
-👉 Example: `a 1580 n Brush t D`
+1. **Simple format:** `amount notes type` (e.g., `500 Tea d`) 🍵
+2. **Tagged format:** `a <amount> n <notes> t <type>` (e.g., `a 1580 n Brush t D`) 🏷️
 
-✅ Entries are saved into a monthly worksheet named **“Month Year”** (e.g., “August 2025”).  
-✅ The bot auto-creates the sheet, writes bold, centered headers, freezes the first row, and appends rows with an **IST date (no time)**.
+✅ Entries saved into a **monthly worksheet** named **“Month Year”** (e.g., “August 2025”) 📅
+✅ Auto-creates new sheets with **bold & centered headers**, freezes the first row, and appends rows with an **IST date** (YYYY-MM-DD) 🕒
 
 ---
 
-## ✨ Features
+## ✨ Key Features
 
-- 💬 Simple tagged message format: `a <amount> n <notes> t <type>`  
-- 📅 Auto-creates monthly sheets with headers (**Amount | Date | Type | Notes**)  
-- 🧹 Cleans input (amount formatting, notes sanitization)  
-- 🕒 Saves **date-only timestamps (IST)**  
-- ✅ Works with **Google Sheets API + Telegram Bot API**
+🎉 **Dual Input Support**
+- *Simple:* `500 Tea d` → ₹500 **Debit** for Tea 🍵
+- *Tagged:* `a 1580 n Brush t D` → ₹1,580 **Debit** for Brush 🖌️
 
----
+🗂️ **Monthly Sheet Management**
+- Auto-creates monthly sheets (e.g., “August 2025”) 📁
+- Applies headers & formatting only once per month 🎨
 
-## 📝 Message format
+🧹 **Input Cleaning & Validation**
+- 💰 **Amount**: Commas & decimals handled
+- 📝 **Notes**: Removes special chars, collapses spaces
+- 🏷️ **Category**: Auto-assigns based on keywords 🎯
 
-| Tag | Meaning | Example | Saved As |
-|-----|---------|---------|----------|
-| 🏷 `a <amount>` | 💰 Amount | `a 1580` | **1,580** |
-| 🏷 `n <notes>` | 📝 Notes | `n Brush` | **Brush** |
-| 🏷 `t <type>` | 🔄 Type (D = Debit, C = Credit) | `t D` | **DEBIT** |
-
-🔹 Tags are **case-insensitive** and may include spaces after the tag.  
-Examples:
-- `a 1580 n Brush t D`
-- `A 1,250 N fuel T c`
-- `a 500 n Tea t d`
+🔗 **Google Sheets API** Integration 🤝
+🖋️ **Markdown-Formatted** Telegram replies 📨
 
 ---
 
-## 📑 Saved columns
+## 📑 Saved Columns
 
-Each row in the monthly sheet (e.g., **August 2025**) contains:  
+| Column    | Description                                                     |
+|-----------|-----------------------------------------------------------------|
+| 💰 Amount | Numeric value (₹)                                               |
+| 📅 Date   | YYYY-MM-DD, Asia/Kolkata                                        |
+| 🔄 Type   | **DEBIT** or **CREDIT**                                         |
+| 📝 Notes  | Description of expense                                         |
+| 🏷️ Category | Auto-assigned based on notes                                     |
 
-- 💰 **Amount**  
-- 📅 **Date (YYYY-MM-DD, IST)**  
-- 🔄 **Type (CREDIT or DEBIT)**  
-- 📝 **Notes**  
+---
 
-📌 Header row: **Amount | Date | Type | Notes**  
-- Styled bold, centered, first row frozen.
+## 📋 Supported Message Formats
+
+| Format  | Example                  | Parsed As                              |
+|---------|--------------------------|-----------------------------------------|
+| Simple  | `500 Tea d`              | Amount=500, Notes=Tea, Type=Debit      |
+| Tagged  | `a 1580 n Brush t d`     | Amount=1580, Notes=Brush, Type=Debit   |
+
+> **Type Tags:** `d`/`D` = **Debit** 🔻, `c`/`C` = **Credit** 🔺
+
+✋ Send `/start` for detailed usage instructions 📖
 
 ---
 
 ## ⚙️ Requirements
 
-- 🤖 Telegram Bot Token  
-- 📊 Google Sheet (Spreadsheet ID)  
-- 🔑 Google Cloud Service Account JSON key  
-- 🐍 Python 3.10+ (tested with 3.10 / 3.12)
+- 🐍 **Python 3.10+**
+- 🤖 **Telegram Bot Token**
+- 📊 **Google Sheets Spreadsheet ID**
+- 🔑 **Google Service Account JSON Key**
 
 ---
 
-## 🚀 Setup
+## 🚀 Setup Guide
 
-1️⃣ **Create a Telegram bot**  
-- Talk to @BotFather → `/newbot` → copy the bot token.
+1️⃣ **Clone & Enter Project**
+```bash
+git clone <repo-url>
+cd gpay_expense_bot
+```
 
-2️⃣ **Create or choose a Google Sheet**  
-- Copy the **Spreadsheet ID** from its URL.
-
-3️⃣ **Google Cloud service account + key**  
-- Enable **Google Sheets API** and **Google Drive API**.  
-- Create service account → download JSON key (`service_account.json`).  
-- Share Google Sheet with the service account email as **Editor**.
-
-4️⃣ **Local project setup**
+2️⃣ **Create & Activate venv**
 ```bash
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scriptsctivate
+source .venv/bin/activate   # macOS/Linux 🐧
+# .venv\\Scripts\\activate  # Windows 💻
+```
+
+3️⃣ **Install Dependencies**
+```bash
 pip install -r requirements.txt
 ```
 
-📄 Create a `.env` file:
-```dotenv
+4️⃣ **Create `.env`**
+```ini
 TELEGRAM_BOT_TOKEN=your_bot_token
 GOOGLE_SHEETS_SPREADSHEET_ID=your_spreadsheet_id
 GOOGLE_SERVICE_ACCOUNT_FILE=service_account.json
 ```
 
-5️⃣ **Run the bot**
+5️⃣ **Run the Bot**
 ```bash
-export TZ=Asia/Kolkata   # optional (for consistency)
+export TZ=Asia/Kolkata  # ensure IST timezone 🕒
 python bot.py
 ```
 
 ---
 
-## 💡 Usage
+## 💡 Usage Examples
 
-Send a tagged message to the bot:
+### Simple format:
 ```text
-a <amount> n <notes> t <type>
+500 Lunch d 🍽️
+1200 Salary c 💼
 ```
 
-The bot replies with:
-- ✅ Saved
-- 💰 Amount
-- 📝 Notes
-- 📅 Date (IST)
-- 🔄 Type
+### Tagged format:
+```text
+a 250 n Coffee t d ☕
+a 3000 n Freelance t c 🖥️
+```
 
-👉 Row is appended to the correct **“Month Year”** worksheet.
-
----
-
-## 🧹 Cleaning & Validation
-
-- 💰 **Amount**
-  - Digits, commas, decimals allowed.
-  - “1,580” → “1,580”
-  - “1580” → “1,580”
-  - “1,580.00” → “1,580”
-  - “1580.5” → “1,580.50”
-
-- 📝 **Notes**
-  - Letters, digits, spaces only.
-  - Repeated spaces collapsed.
-  - Other symbols removed.
-
-- 🔄 **Type**
-  - `t D / t d` → **DEBIT**
-  - `t C / t c` → **CREDIT**
-  - Anything else → `-`
+The bot replies:
+```
+✅ **Saved!**
+💰 Amount: ₹250
+📝 Notes: Coffee
+📅 Date: 2025-08-30
+🔄 Type: DEBIT
+🏷️ Category: Entertainment
+```
+And appends a row to the sheet.
 
 ---
 
-## 📅 Behavior
+## 🛠️ Troubleshooting
 
-- 🗂 Monthly sheet naming: **“Month Year”** (e.g., *August 2025*)
-- 📄 Auto sheet creation: headers + formatting applied once per month
-- 🕒 Timestamps: IST, date-only (`YYYY-MM-DD`)
-
----
-
-## 🛠 Troubleshooting
-
-- ❌ **Permission denied** → Share Google Sheet with service account email.
-- ❌ **Missing key file** → Ensure correct path in `.env`.
-- ❌ **Missing bot token** → Add `TELEGRAM_BOT_TOKEN` in `.env`.
+- ❌ **Missing Bot Token** → Add `TELEGRAM_BOT_TOKEN` in `.env`
+- ❌ **Key File Not Found** → Verify `service_account.json` path in `.env`
+- ❌ **Permission Denied** → Share sheet with service account email ✉️
 
 ---
 
-## 🔐 Security
+## 🔒 Security
 
-- 🚫 Do **not** commit your service account JSON or bot token.
-- 🔒 Restrict service account to only needed APIs/docs.
+- 🚫 Don’t commit `.env` or JSON key
+- 🔒 Limit service account scopes to necessary APIs
 
 ---
 
-## 🛤 Roadmap
+## 🔜 Roadmap
 
-- 🔄 Command to switch/override target month
-- 📊 Monthly summaries/exports
+- 🔄 Switch/override target month command
+- 📊 Monthly summary/exports
 - ⚠️ Validation prompts for missing tags
 
 ---
 
 ## 📜 License
 
-🆓 MIT — Use and modify freely.
+MIT © 2025 — Use & modify freely ✌️
