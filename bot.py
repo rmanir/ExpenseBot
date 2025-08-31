@@ -68,6 +68,8 @@ CATEGORY_MAP = {
     "rice": "Grocery",
     "oil": "Grocery",
     "flower":"Grocery",
+    "income": "Income",
+    "salary": "Income"
 }
 
 def categorize(notes: str) -> str:
