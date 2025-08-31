@@ -143,14 +143,35 @@ if df.empty:
     st.stop()
 
 # --- KPIs ---
+# total_debit = df[df["Type"].astype(str).str.lower().eq("debit")]["Amount"].sum()
+# total_credit = df[df["Type"].astype(str).str.lower().eq("credit")]["Amount"].sum()
+# net_flow = total_credit - total_debit
+
+# c1, c2, c3 = st.columns(3)
+# c1.metric("💰 Total Debit", f"₹{total_debit:,.2f}")
+# c2.metric("📈 Total Credit", f"₹{total_credit:,.2f}")
+# c3.metric("⚖️ Net Flow", f"₹{net_flow:,.2f}")
+
+# --- KPIs ---
 total_debit = df[df["Type"].astype(str).str.lower().eq("debit")]["Amount"].sum()
 total_credit = df[df["Type"].astype(str).str.lower().eq("credit")]["Amount"].sum()
 net_flow = total_credit - total_debit
 
+# Percent of income that Net Flow represents (avoid div/0)
+income = float(total_credit)
+pct_of_income = (net_flow / income * 100.0) if income > 0 else 0.0
+
+# Build a signed delta string so st.metric colors it:
+#   - starts with '+' for positive => green
+#   - starts with '-' for negative => red
+sign = "+" if pct_of_income >= 0 else ""
+net_flow_delta = f"{sign}{pct_of_income:.2f}% of income"
+
 c1, c2, c3 = st.columns(3)
-c1.metric("💰 Total Debit", f"₹{total_debit:,.2f}")
-c2.metric("📈 Total Credit", f"₹{total_credit:,.2f}")
-c3.metric("⚖️ Net Flow", f"₹{net_flow:,.2f}")
+c1.metric("💰 Total Income", f"₹{total_debit:,.2f}")
+c2.metric("📈 Total Expenses", f"₹{total_credit:,.2f}")
+c3.metric("⚖️ Difference", f"₹{net_flow:,.2f}", net_flow_delta)
+
 
 st.markdown("---")
 
@@ -195,9 +216,37 @@ with right:
 
 st.markdown("---")
 
+# --- Targets, delta text, and badge helpers (50/30/20 rule) ---
+
+TARGETS = {"Need": 50.0, "Want": 30.0, "Investment": 20.0}
+
+def delta_vs_target(bucket: str, pct: float) -> str:
+    """Return string delta for st.metric: '+/-x.xx% vs YY% target'."""
+    targ = TARGETS[bucket]
+    raw_diff = round(pct - targ, 2)
+    abs_diff = abs(raw_diff)
+
+    if bucket == "Investment":
+        sign = "+" if pct >= targ else "-"
+    else:  # Need or Want
+        sign = "+" if pct <= targ else "-"
+    # diff = round(pct - targ, 2)
+    # sign = "+" if diff >= 0 else ""
+    return f"{sign}{abs_diff:.2f}%"
+
 # --- Need / Want / Investment allocation ---
 income, nwi = compute_need_want_invest(df)
 st.subheader("🧭 Allocation: Need vs Want vs Investment (as % of Income)")
+
+# Build target amounts per bucket from 50/30/20 rule
+TARGETS = {"Need": 50.0, "Want": 30.0, "Investment": 20.0}  # already defined earlier
+nwi_display = nwi.copy()
+
+# Target Amount = target% of income
+nwi_display["Target Amount"] = nwi_display["Bucket"].map(lambda b: income * TARGETS[b] / 100.0)
+
+# Over/(Under) Target = Actual - Target
+nwi_display["Over/(Under) Target"] = nwi_display["Amount"] - nwi_display["Target Amount"]
 
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("🏦 Income", f"₹{income:,.2f}")
@@ -208,27 +257,9 @@ need_pct = float(nwi.loc[nwi["Bucket"] == "Need", "% of Income"].iloc[0]) if not
 want_pct = float(nwi.loc[nwi["Bucket"] == "Want", "% of Income"].iloc[0]) if not nwi.empty else 0.0
 inv_pct  = float(nwi.loc[nwi["Bucket"] == "Investment", "% of Income"].iloc[0]) if not nwi.empty else 0.0
 
-m2.metric("🧩 Need", f"₹{need_amt:,.2f}", f"{need_pct:.2f}%")
-m3.metric("🎉 Want", f"₹{want_amt:,.2f}", f"{want_pct:.2f}%")
-m4.metric("📈 Investment", f"₹{inv_amt:,.2f}", f"{inv_pct:.2f}%")
-
-# Show target-aware colored badges under each metric (50/30/20 rule)
-TARGETS = {"Need": 50.0, "Want": 30.0, "Investment": 20.0}
-
-def pct_badge(bucket: str, pct: float) -> str:
-    targ = TARGETS[bucket]
-    # Investment good when >= target; Need/Want good when <= target
-    if bucket == "Investment":
-        color = "green" if pct >= targ else "red"
-    else:
-        color = "green" if pct <= targ else "red"
-    return f":{color}-background[{pct:.2f}%]"
-
-# Place badges directly under the three metrics
-st.markdown(pct_badge("Need", need_pct))
-st.markdown(pct_badge("Want", want_pct))
-st.markdown(pct_badge("Investment", inv_pct))
-
+m2.metric("🧩 Need", f"₹{need_amt:,.2f}", delta_vs_target("Need", need_pct))
+m3.metric("🎉 Want", f"₹{want_amt:,.2f}", delta_vs_target("Want", want_pct))
+m4.metric("📈 Investment", f"₹{inv_amt:,.2f}", delta_vs_target("Investment", inv_pct))
 
 
 if not nwi.empty:
@@ -244,11 +275,47 @@ if not nwi.empty:
     fig_nwi.update_traces(textposition="inside", textinfo="percent+label")
     st.plotly_chart(fig_nwi, use_container_width=True)
 
-    # Optional table
-    st.dataframe(
-        nwi.style.format({"Amount": "₹{:,.2f}", "% of Income": "{:.2f}%"}),
-        use_container_width=True,
+
+nwi_display = nwi_display[["Bucket", "Amount", "% of Income", "Target Amount", "Over/(Under) Target"]].set_index("Bucket")
+
+def highlight_over_under_row(row):
+    # row is a Series with index: ["Amount", "% of Income", "Target Amount", "Over/(Under) Target"]
+    # Determine bucket from the row's name (index)
+    bucket = row.name
+    val = row["Over/(Under) Target"]
+
+    # Rules:
+    # - Investment: green if >= 0, red if < 0
+    # - Need/Want: green if <= 0, red if > 0
+    if bucket == "Investment":
+        color = "#e6f4ea" if val >= 0 else "#fdecea"
+    else:
+        color = "#e6f4ea" if val <= 0 else "#fdecea"
+
+    # Return per-column styles (only color the Over/(Under) Target cell)
+    return pd.Series(
+        {
+            "Amount": "",
+            "% of Income": "",
+            "Target Amount": "",
+            "Over/(Under) Target": f"background-color: {color}",
+        }
     )
+
+styled = (
+    nwi_display.style
+    .format({
+        "Amount": "₹{:,.2f}",
+        "Target Amount": "₹{:,.2f}",
+        "Over/(Under) Target": "₹{:,.2f}",
+        "% of Income": "{:.2f}%"
+    })
+    # Apply row-wise so we can read the bucket name from the index
+    .apply(highlight_over_under_row, axis=1)
+)
+
+st.dataframe(styled, use_container_width=True)
+
 
 st.markdown("---")
 
