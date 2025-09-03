@@ -51,8 +51,8 @@ CATEGORY_MAP = {
     "petrol": "Petrol",
     "bus": "Travel",
     "irctc": "Travel",
-    "carpet": "Travel",
-    "cpet": "Travel",
+    "carpetrol": "Travel",
+    "cpetrol": "Travel",
     "fasttag": "Travel",
     "gas": "Gas & Water",
     "water": "Gas & Water",
@@ -69,7 +69,11 @@ CATEGORY_MAP = {
     "oil": "Grocery",
     "flower":"Grocery",
     "income": "Income",
-    "salary": "Income"
+    "salary": "Income",
+    "investment": "Investment",
+    "milk": "Grocery",
+    "tea": "Entertainment",
+    "icecream": "Entertainment"
 }
 
 def categorize(notes: str) -> str:
@@ -117,9 +121,12 @@ def ensure_headers_and_format(sheet):
     except Exception:
         pass
 
-def get_or_create_monthly_sheet():
+def get_or_create_monthly_sheet(date_obj=None):
     """Get or create monthly sheet with proper formatting."""
-    month_year = datetime.now(IST).strftime("%B %Y")
+    # Use provided date_obj or default to now()
+    target_date = date_obj if date_obj else datetime.now(IST)
+    month_year = target_date.strftime("%B %Y")
+    
     try:
         _, spreadsheet = get_client_and_spreadsheet()
         sheet = spreadsheet.worksheet(month_year)
@@ -145,18 +152,18 @@ def parse_simple_format(text: str):
     """Parse simple format: amount notes type (e.g., '500 Tea d')"""
     parts = text.strip().split()
     if len(parts) < 2:
-        return None, None, None, None
+        return None, None, None, None, None
     
     # First part = amount
     try:
         amount = float(parts[0].replace(",", ""))
     except ValueError:
-        return None, None, None, None
+        return None, None, None, None, None
     
     # Last part = type
     tx_type = parts[-1].lower()
     if tx_type not in ["d", "c"]:
-        return None, None, None, None
+        return None, None, None, None, None
     
     # Middle parts = notes
     notes = " ".join(parts[1:-1]).strip()
@@ -165,26 +172,29 @@ def parse_simple_format(text: str):
     tx_type = "Debit" if tx_type == "d" else "Credit"
     category = categorize(notes)
     
-    return amount, notes, tx_type, category
+    # Return None for date, as this format doesn't support it
+    return amount, notes, tx_type, category, None
 
 def parse_tagged_format(text: str):
-    """Parse tagged format: a <amount> n <notes> t <type>"""
+    """Parse tagged format: a <amount> n <notes> t <type> d <date>"""
     # Regex patterns for tagged format
     TAG_A = re.compile(r"(?<!\S)[aA]\s*([0-9][0-9,\.]*?)\b")
     TAG_T = re.compile(r"(?<!\S)[tT]\s*([cCdD])\b")
-    TAG_N = re.compile(r"(?<!\S)[nN]\s*(.+?)(?=\s+[aAnNtT]\b|$)")
-    
+    TAG_N = re.compile(r"(?<!\S)[nN]\s*(.+?)(?=\s+[aAnNtTdD]\b|$)")
+    TAG_D = re.compile(r"(?<!\S)[dD]\s*(\d{1,2}[-/.]\d{1,2}(?:[-/.]\d{2,4})?)\b") # Date Tag
+
     amt_match = TAG_A.search(text)
     type_match = TAG_T.search(text)
     note_match = TAG_N.search(text)
+    date_match = TAG_D.search(text) # Search for date
     
     if not amt_match or not type_match:
-        return None, None, None, None
+        return None, None, None, None, None
     
     try:
         amount = float(amt_match.group(1).replace(",", ""))
     except ValueError:
-        return None, None, None, None
+        return None, None, None, None, None
     
     tx_type = type_match.group(1).upper()
     tx_type = "Credit" if tx_type == "C" else "Debit"
@@ -195,11 +205,29 @@ def parse_tagged_format(text: str):
     
     category = categorize(notes)
     
-    return amount, notes, tx_type, category
+    # --- New Date Parsing Logic ---
+    manual_date = None
+    if date_match:
+        date_str = date_match.group(1).replace("/", "-").replace(".", "-")
+        try:
+            # Try parsing with year: DD-MM-YYYY or DD-MM-YY
+            if len(date_str.split('-')[-1]) == 4:
+                manual_date = datetime.strptime(date_str, "%d-%m-%Y")
+            else:
+                manual_date = datetime.strptime(date_str, "%d-%m-%y")
+        except ValueError:
+            try:
+                # Try parsing without year: DD-MM, assume current year
+                manual_date = datetime.strptime(date_str, "%d-%m").replace(year=datetime.now().year)
+            except ValueError:
+                manual_date = None # Invalid date format
+    
+    return amount, notes, tx_type, category, manual_date
 
 def parse_message(text: str):
     """Parse message in either format - tagged or simple."""
     # Try tagged format first (a ... n ... t ...)
+    # The regex now checks for 'd' (date) as a possible tag
     if re.search(r"[aA]\s*\d", text) and re.search(r"[tT]\s*[cdCD]", text):
         return parse_tagged_format(text)
     
@@ -212,17 +240,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "🤖 **Expense Tracker Bot**\n\n"
         "📝 **Two formats supported:**\n\n"
-        "**1. Simple format:**\n"
+        "**1. Simple format (for today's date):**\n"
         "`amount notes type`\n"
         "Example: `500 Tea d`\n\n"
-        "**2. Tagged format:**\n"
-        "`a <amount> n <notes> t <type>`\n"
-        "Example: `a 1580 n Brush t d`\n\n"
-        "**Types:**\n"
-        "• `d` or `D` = Debit\n"
-        "• `c` or `C` = Credit\n\n"
-        "Entries are saved in monthly sheets (e.g., 'August 2025')\n"
-        "Categories are auto-assigned based on notes! 🎯"
+        "**2. Tagged format (with optional date):**\n"
+        "`a <amount> n <notes> t <type> d <date>`\n"
+        "Example: `a 1580 n Brush t d d 28-08-2025`\n\n"
+        "**Tags & Types:**\n"
+        "• `a` - Amount\n"
+        "• `n` - Notes\n"
+        "• `t` - Type (`d`/`D` for Debit, `c`/`C` for Credit)\n"
+        "• `d` - **Date (Optional)**. Accepts `dd-mm-yyyy`, `dd-mm-yy`, or `dd-mm`.\n\n"
+        "Entries are saved in monthly sheets. Categories are auto-assigned! 🎯"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
@@ -230,7 +259,8 @@ async def log_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle expense logging messages."""
     try:
         message_text = update.message.text
-        amount, notes, tx_type, category = parse_message(message_text)
+        # The parser now returns a 5th value: manual_date
+        amount, notes, tx_type, category, manual_date = parse_message(message_text)
         
         if not amount or not tx_type:
             await update.message.reply_text(
@@ -242,12 +272,18 @@ async def log_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             return
+
+        # --- Use manual date if provided, otherwise use current date ---
+        if manual_date:
+            # Add timezone info to the manually parsed date
+            date_to_log = IST.localize(manual_date)
+        else:
+            date_to_log = datetime.now(IST)
         
-        # Get current date in IST
-        date_str = datetime.now(IST).strftime("%Y-%m-%d")
+        date_str = date_to_log.strftime("%Y-%m-%d")
         
-        # Save to Google Sheets
-        sheet = get_or_create_monthly_sheet()
+        # Save to Google Sheets, passing the date to get the correct sheet
+        sheet = get_or_create_monthly_sheet(date_to_log)
         sheet.append_row([amount, date_str, tx_type, notes, category])
         
         # Format amount for display
