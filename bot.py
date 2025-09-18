@@ -88,7 +88,6 @@ CATEGORY_TARGETS = {
     "Medicine": 3000,
     "EB & EC": 3000,
     "Others": 15000,
-    "Income": 0,
     "Withdrawal": 0
 }
 
