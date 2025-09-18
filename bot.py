@@ -51,8 +51,7 @@ CATEGORY_MAP = {
     "petrol": "Petrol",
     "bus": "Travel",
     "irctc": "Travel",
-    "carpetrol": "Travel",
-    "cpetrol": "Travel",
+    "kiger": "Travel",
     "fasttag": "Travel",
     "gas": "Gas & Water",
     "water": "Gas & Water",
@@ -73,7 +72,8 @@ CATEGORY_MAP = {
     "investment": "Investment",
     "milk": "Grocery",
     "tea": "Entertainment",
-    "icecream": "Entertainment"
+    "icecream": "Entertainment",
+    "car": "Travel"
 }
 
 # --- Category Budget ---
