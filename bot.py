@@ -1,44 +1,39 @@
 import os
 import logging
 import re
+import time
 from datetime import datetime
+import asyncio
 import pytz
 import gspread
 from google.oauth2.service_account import Credentials
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, filters, ContextTypes
+)
 from dotenv import load_dotenv
+
 load_dotenv()
 
-# Stabilize timezone
-os.environ.setdefault("TZ", "Asia/Kolkata")
-
-# Enhanced logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-
-# Load environment variables with error checking
+# Constants & config
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
 SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account.json")
-
-# Validate required environment variables
-if not TELEGRAM_BOT_TOKEN:
-    raise RuntimeError("Error: TELEGRAM_BOT_TOKEN is not set")
-if not SPREADSHEET_ID:
-    raise RuntimeError("Error: GOOGLE_SHEETS_SPREADSHEET_ID is not set")
-
-# Check service account file exists
-if not os.path.exists(SERVICE_ACCOUNT_FILE):
-    raise RuntimeError(f"Service account JSON not found at: {SERVICE_ACCOUNT_FILE}")
-
-# Timezone IST
 IST = pytz.timezone("Asia/Kolkata")
+DUPLICATE_WINDOW_SECONDS = 10  # duplicate prevention window
 
-# --- Category Mapper ---
+# Logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+if not TELEGRAM_BOT_TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN missing in .env")
+if not SPREADSHEET_ID:
+    raise RuntimeError("GOOGLE_SHEETS_SPREADSHEET_ID missing in .env")
+if not os.path.exists(SERVICE_ACCOUNT_FILE):
+    raise RuntimeError(f"service_account.json not found at: {SERVICE_ACCOUNT_FILE}")
+
+# Category map (keeps same mapping as previous)
 CATEGORY_MAP = {
     "rent": "Rent",
     "stock": "Investment",
@@ -66,7 +61,7 @@ CATEGORY_MAP = {
     "medical": "Medicine",
     "rice": "Grocery",
     "oil": "Grocery",
-    "flower":"Grocery",
+    "flower": "Grocery",
     "income": "Income",
     "salary": "Income",
     "investment": "Investment",
@@ -76,338 +71,334 @@ CATEGORY_MAP = {
     "car": "Travel"
 }
 
-# --- Category Budget ---
-CATEGORY_TARGETS = {
-    "Rent": 17000,
-    "Grocery": 9000,
-    "Travel": 8000,
-    "Entertainment": 10000,
-    "Investment": 20000,
-    "Petrol": 2000,
-    "Gas & Water": 1000,
-    "Medicine": 3000,
-    "EB & EC": 3000,
-    "Others": 15000,
-    "Withdrawal": 0
-}
+# In-memory state for duplicate prevention and last operation per user
+_last_message = {}  # user_id -> (text, timestamp)
 
-def categorize(notes: str) -> str:
-    """Categorize transaction based on notes content."""
-    notes_lower = notes.lower()
-    for keyword, category in CATEGORY_MAP.items():
-        if keyword in notes_lower:
-            return category
-    return "Others"
+# ================= Google Sheets helpers =================
 
-# --- Google Sheets Setup ---
 def get_client_and_spreadsheet():
-    """Initialize Google Sheets client and spreadsheet."""
     scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
     ]
     creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=scopes)
     client = gspread.authorize(creds)
     spreadsheet = client.open_by_key(SPREADSHEET_ID)
     return client, spreadsheet
 
-def ensure_headers_and_format(sheet):
-    """Ensure headers exist, are properly formatted, and first row is frozen."""
+
+def ensure_headers_and_format(ws):
     headers = ["Amount", "Date", "Type", "Notes", "Category"]
     try:
-        first_row = sheet.row_values(1)
+        first_row = ws.row_values(1)
     except Exception:
         first_row = []
-    
-    # Update headers if they don't match
     if [h.strip() for h in (first_row or [])] != headers:
-        sheet.update("A1:E1", [headers])
-    
-    # Format headers: bold + center
-    fmt = {
-        "textFormat": {"bold": True},
-        "horizontalAlignment": "CENTER"
-    }
-    sheet.format("A1:E1", fmt)
-    
-    # Freeze first row
+        ws.update("A1:E1", [headers])
     try:
-        sheet.freeze(rows=1)
+        ws.freeze(rows=1)
     except Exception:
         pass
 
-def get_or_create_monthly_sheet(date_obj=None):
-    """Get or create monthly sheet with proper formatting."""
-    # Use provided date_obj or default to now()
-    target_date = date_obj if date_obj else datetime.now(IST)
-    month_year = target_date.strftime("%B %Y")
-    
+
+def get_or_create_monthly_sheet(date_obj: datetime):
+    month_year = date_obj.strftime("%B %Y")
+    _, spreadsheet = get_client_and_spreadsheet()
     try:
-        _, spreadsheet = get_client_and_spreadsheet()
-        sheet = spreadsheet.worksheet(month_year)
-        ensure_headers_and_format(sheet)
-        return sheet
+        ws = spreadsheet.worksheet(month_year)
+        ensure_headers_and_format(ws)
+        return ws
     except gspread.exceptions.WorksheetNotFound:
-        _, spreadsheet = get_client_and_spreadsheet()
-        sheet = spreadsheet.add_worksheet(title=month_year, rows=1000, cols=5)
-        headers = ["Amount", "Date", "Type", "Notes", "Category"]
-        sheet.append_row(headers)
-        
-        # Format headers
-        fmt = {
-            "textFormat": {"bold": True},
-            "horizontalAlignment": "CENTER"
-        }
-        sheet.format("A1:E1", fmt)
-        sheet.freeze(rows=1)
-        return sheet
-    
-def get_or_create_budget_sheet(year):
-    """Ensure 'Budget <year>' sheet exists with header and target row."""
-    sheet_name = f"Budget {year}"
-    try:
-        _, spreadsheet = get_client_and_spreadsheet()
-        sheet = spreadsheet.worksheet(sheet_name)
-    except gspread.exceptions.WorksheetNotFound:
-        _, spreadsheet = get_client_and_spreadsheet()
-        sheet = spreadsheet.add_worksheet(title=sheet_name, rows=100, cols=len(CATEGORY_TARGETS) + 1)
+        ws = spreadsheet.add_worksheet(title=month_year, rows=1200, cols=6)
+        ws.append_row(["Amount", "Date", "Type", "Notes", "Category"])
+        ensure_headers_and_format(ws)
+        return ws
 
-        # Headers
-        headers = ["Month"] + list(CATEGORY_TARGETS.keys())
-        sheet.append_row(headers)
+# ================= Parsing =================
 
-        # Target row
-        targets = ["Target"] + [CATEGORY_TARGETS[cat] for cat in CATEGORY_TARGETS]
-        sheet.append_row(targets)
-
-        # Formatting
-        fmt = {"textFormat": {"bold": True}, "horizontalAlignment": "CENTER"}
-        sheet.format("A1:Z1", fmt)
-        sheet.freeze(rows=2)
-
-    return sheet
+def categorize(notes: str) -> str:
+    notes_lower = (notes or "").lower()
+    for key, cat in CATEGORY_MAP.items():
+        if key in notes_lower:
+            return cat
+    return "Others"
 
 
-# --- Message Parser (Supporting both formats) ---
 def parse_simple_format(text: str):
-    """Parse simple format: amount notes type (e.g., '500 Tea d')"""
+    # simple: amount notes type  e.g. 500 tea d
     parts = text.strip().split()
     if len(parts) < 2:
-        return None, None, None, None, None
-    
-    # First part = amount
+        return None
+    # amount first
     try:
-        amount = float(parts[0].replace(",", ""))
-    except ValueError:
-        return None, None, None, None, None
-    
-    # Last part = type
+        amount = float(parts[0].replace(',', ''))
+    except Exception:
+        return None
     tx_type = parts[-1].lower()
     if tx_type not in ["d", "c"]:
-        return None, None, None, None, None
-    
-    # Middle parts = notes
-    notes = " ".join(parts[1:-1]).strip()
-    
-    # Normalize
-    tx_type = "Debit" if tx_type == "d" else "Credit"
+        return None
+    notes = " ".join(parts[1:-1]) or ""
+    tx_type_full = "Debit" if tx_type == 'd' else 'Credit'
+    date_obj = datetime.now(IST)
     category = categorize(notes)
-    
-    # Return None for date, as this format doesn't support it
-    return amount, notes, tx_type, category, None
+    return {
+        'amount': amount,
+        'notes': notes,
+        'type': tx_type_full,
+        'date': date_obj,
+        'category': category
+    }
+
 
 def parse_tagged_format(text: str):
-    """Parse tagged format: a <amount> n <notes> t <type> d <date>"""
-    # Regex patterns for tagged format
-    TAG_A = re.compile(r"(?<!\S)[aA]\s*([0-9][0-9,\.]*?)\b")
-    TAG_T = re.compile(r"(?<!\S)[tT]\s*([cCdD])\b")
-    TAG_N = re.compile(r"(?<!\S)[nN]\s*(.+?)(?=\s+[aAnNtTdD]\b|$)")
-    TAG_D = re.compile(r"(?<!\S)[dD]\s*(\d{1,2}[-/.]\d{1,2}(?:[-/.]\d{2,4})?)\b") # Date Tag
-
-    amt_match = TAG_A.search(text)
-    type_match = TAG_T.search(text)
-    note_match = TAG_N.search(text)
-    date_match = TAG_D.search(text) # Search for date
-    
-    if not amt_match or not type_match:
-        return None, None, None, None, None
-    
-    try:
-        amount = float(amt_match.group(1).replace(",", ""))
-    except ValueError:
-        return None, None, None, None, None
-    
-    tx_type = type_match.group(1).upper()
-    tx_type = "Credit" if tx_type == "C" else "Debit"
-    
-    notes = note_match.group(1).strip() if note_match else ""
-    notes = re.sub(r"[^A-Za-z0-9 ]", " ", notes)
-    notes = re.sub(r"\s+", " ", notes).strip() or "Transaction"
-    
-    category = categorize(notes)
-    
-    # --- New Date Parsing Logic ---
-    manual_date = None
-    if date_match:
-        date_str = date_match.group(1).replace("/", "-").replace(".", "-")
-        try:
-            # Try parsing with year: DD-MM-YYYY or DD-MM-YY
-            if len(date_str.split('-')[-1]) == 4:
-                manual_date = datetime.strptime(date_str, "%d-%m-%Y")
-            else:
-                manual_date = datetime.strptime(date_str, "%d-%m-%y")
-        except ValueError:
+    # tagged: a <amount> n <notes> t <type> d <date>
+    # order flexible; date optional
+    tokens = text.strip().split()
+    if len(tokens) < 1:
+        return None
+    data = {'amount': None, 'notes': '', 'type': None, 'date': None}
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i].lower()
+        if tok == 'a' and i + 1 < len(tokens):
             try:
-                # Try parsing without year: DD-MM, assume current year
-                manual_date = datetime.strptime(date_str, "%d-%m").replace(year=datetime.now().year)
-            except ValueError:
-                manual_date = None # Invalid date format
-    
-    return amount, notes, tx_type, category, manual_date
+                data['amount'] = float(tokens[i+1].replace(',', ''))
+                i += 2
+                continue
+            except Exception:
+                return None
+        if tok == 'n':
+            # gather notes until next tag or end
+            j = i+1
+            notes_parts = []
+            while j < len(tokens) and tokens[j].lower() not in ['a','n','t','d']:
+                notes_parts.append(tokens[j])
+                j += 1
+            data['notes'] = ' '.join(notes_parts)
+            i = j
+            continue
+        if tok == 't' and i + 1 < len(tokens):
+            tkn = tokens[i+1].lower()
+            if tkn in ['d', 'c', 'debit', 'credit']:
+                data['type'] = 'Debit' if tkn.startswith('d') else 'Credit'
+                i += 2
+                continue
+            else:
+                return None
+        if tok == 'd' and i + 1 < len(tokens):
+            # date formats: dd-mm-yyyy, dd-mm-yy, dd-mm
+            date_str = tokens[i+1]
+            try:
+                parts = date_str.split('-')
+                day = int(parts[0])
+                month = int(parts[1])
+                year = None
+                if len(parts) == 3:
+                    year = int(parts[2])
+                    if year < 100:  # yy
+                        year += 2000
+                else:
+                    year = datetime.now(IST).year
+                # create date
+                data['date'] = datetime(year, month, day, tzinfo=IST)
+                i += 2
+                continue
+            except Exception:
+                return None
+        # unrecognized token — move on
+        i += 1
+    if data['amount'] is None or data['type'] is None:
+        return None
+    if data['date'] is None:
+        data['date'] = datetime.now(IST)
+    data['category'] = categorize(data['notes'])
+    return data
+
 
 def parse_message(text: str):
-    """Parse message in either format - tagged or simple."""
-    # Try tagged format first (a ... n ... t ...)
-    # The regex now checks for 'd' (date) as a possible tag
-    if re.search(r"[aA]\s*\d", text) and re.search(r"[tT]\s*[cdCD]", text):
-        return parse_tagged_format(text)
-    
-    # Fall back to simple format (amount notes type)
-    return parse_simple_format(text)
+    # try tagged first (if starts with 'a '), else simple
+    text_strip = text.strip()
+    if text_strip.lower().startswith('a '):
+        return parse_tagged_format(text_strip)
+    return parse_simple_format(text_strip)
 
-# --- Telegram Handlers ---
+# ================= Helpers =================
+
+def format_success_message(entry: dict) -> str:
+    # entry: amount, notes, type, date (datetime), category
+    date_str = entry['date'].strftime('%Y-%m-%d')
+    amt_str = f"₹{int(entry['amount']) if entry['amount'].is_integer() else entry['amount']}"
+    return (
+        "✅ Saved Successfully!\n\n"
+        f"💰 Amount: {amt_str}\n"
+        f"📝 Notes: {entry['notes'] or '-'}\n"
+        f"📅 Date: {date_str}\n"
+        f"📂 Category: {entry['category']}\n"
+        f"🔖 Type: {entry['type']}"
+    )
+
+
+def get_last_data_row(ws):
+    # returns index of last non-empty row (>=2). If only header exists, return None
+    values = ws.get_all_values()
+    if len(values) <= 1:
+        return None
+    return len(values)
+
+# ================= Command Handlers =================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command."""
-    msg = (
-        "🤖 **Expense Tracker Bot**\n\n"
-        "📝 **Two formats supported:**\n\n"
-        "**1. Simple format (for today's date):**\n"
+    text = (
+        "📘 Expense Tracker Bot\n\n"
+        "📝 Two formats supported:\n\n"
+        "1. *Simple format* (for today's date):\n"
         "`amount notes type`\n"
         "Example: `500 Tea d`\n\n"
-        "**2. Tagged format (with optional date):**\n"
+        "2. *Tagged format* (with optional date):\n"
         "`a <amount> n <notes> t <type> d <date>`\n"
         "Example: `a 1580 n Brush t d d 28-08-2025`\n\n"
-        "**Tags & Types:**\n"
+        "*Tags & Types:*\n"
         "• `a` - Amount\n"
         "• `n` - Notes\n"
-        "• `t` - Type (`d`/`D` for Debit, `c`/`C` for Credit)\n"
-        "• `d` - **Date (Optional)**. Accepts `dd-mm-yyyy`, `dd-mm-yy`, or `dd-mm`.\n\n"
+        "• `t` - Type (d/D for Debit, c/C for Credit)\n"
+        "• `d` - Date (Optional). Accepts *dd-mm-yyyy*, *dd-mm-yy*, or *dd-mm*.\n\n"
         "Entries are saved in monthly sheets. Categories are auto-assigned! 🎯"
     )
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+
+async def help_invalid_format(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "❌ *Invalid format*\n\n"
+        "Use either:\n"
+        "• `500 Tea d` *(simple)*\n"
+        "• `a 500 n Tea t d` *(tagged)*\n\n"
+        "Send /start for more details"
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+
 
 async def log_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle expense logging messages."""
     try:
-        message_text = update.message.text
-        # The parser now returns a 5th value: manual_date
-        amount, notes, tx_type, category, manual_date = parse_message(message_text)
-        
-        if not amount or not tx_type:
-            await update.message.reply_text(
-                "❌ **Invalid format**\n\n"
-                "**Use either:**\n"
-                "• `500 Tea d` (simple)\n"
-                "• `a 500 n Tea t d` (tagged)\n\n"
-                "Send /start for more details",
-                parse_mode="Markdown"
-            )
+        user = update.effective_user
+        user_id = user.id if user else None
+        text = (update.message.text or "").strip()
+        logger.info(f"RAW UPDATE MESSAGE from {user_id}: {text}")
+
+        # Duplicate prevention (Option A with 5 sec)
+        now_ts = time.time()
+        last = _last_message.get(user_id)
+        if last and last[0] == text and (now_ts - last[1]) <= DUPLICATE_WINDOW_SECONDS:
+            await update.message.reply_text("⚠️ Duplicate entry ignored (sent too quickly).")
+            return
+        # update last message
+        _last_message[user_id] = (text, now_ts)
+
+        parsed = parse_message(text)
+        if not parsed:
+            await help_invalid_format(update, context)
             return
 
-        # --- Use manual date if provided, otherwise use current date ---
-        if manual_date:
-            # Add timezone info to the manually parsed date
-            date_to_log = IST.localize(manual_date)
-        else:
-            date_to_log = datetime.now(IST)
-        
-        date_str = date_to_log.strftime("%Y-%m-%d")
-        
-        # Save to Google Sheets, passing the date to get the correct sheet
-        sheet = get_or_create_monthly_sheet(date_to_log)
-        sheet.append_row([amount, date_str, tx_type, notes, category])
+        # prepare sheet append
+        ws = get_or_create_monthly_sheet(parsed['date'])
+        date_str = parsed['date'].strftime('%Y-%m-%d')
+        row = [parsed['amount'], date_str, parsed['type'], parsed['notes'], parsed['category']]
 
-                # --- BUDGET FEATURE: Update budget sheet ---
-        budget_year = date_to_log.year
-        budget_sheet = get_or_create_budget_sheet(budget_year)
-        month_name = date_to_log.strftime("%B")
+        # append row and reply with formatted message
+        try:
+            ws.append_row(row)
+            reply = format_success_message({
+                'amount': parsed['amount'],
+                'notes': parsed['notes'],
+                'type': parsed['type'],
+                'date': parsed['date'],
+                'category': parsed['category']
+            })
+            await update.message.reply_text(reply)
+            logger.info('GSHEET: Row append SUCCESS')
+        except Exception as e:
+            logger.error(f"GSHEET WRITE ERROR: {e}")
+            await update.message.reply_text(f"GSHEET ERROR: {e}")
 
-        # Get all budget rows
-        budget_rows = budget_sheet.get_all_values()
-        header_row = budget_rows[0]
-        existing_months = [row[0] for row in budget_rows[2:]]  # skip headers
-
-        # Map category to column index
-        col_map = {cat: idx for idx, cat in enumerate(header_row)}
-        col_index = col_map.get(category, col_map.get("Others", 1))  # fallback to "Others"
-
-        # Find or create row
-        if month_name in existing_months:
-            row_idx = existing_months.index(month_name) + 3  # +3 to skip 2 header rows
-            current_value = budget_sheet.cell(row_idx, col_index + 1).value or "0"
-            try:
-                new_value = float(current_value) + amount
-            except ValueError:
-                new_value = amount
-            budget_sheet.update_cell(row_idx, col_index + 1, new_value)
-        else:
-            # New row
-            row = [""] * len(header_row)
-            row[0] = month_name
-            row[col_index] = amount
-            budget_sheet.append_row(row)
-
-        
-        # Format amount for display
-        amount_display = f"{amount:,.2f}" if amount != int(amount) else f"{int(amount):,}"
-        
-        # Send confirmation
-        reply = (
-            f"✅ **Saved Successfully!**\n\n"
-            f"💰 **Amount:** ₹{amount_display}\n"
-            f"📝 **Notes:** {notes}\n"
-            f"📅 **Date:** {date_str}\n"
-            f"📂 **Category:** {category}\n"
-            f"🔖 **Type:** {tx_type}"
-        )
-        await update.message.reply_text(reply, parse_mode="Markdown")
-        
     except Exception as e:
-        logging.error(f"Error processing expense: {e}")
-        await update.message.reply_text(f"❌ **Error:** {str(e)}", parse_mode="Markdown")
+        logger.exception(f"ERROR in log_expense: {e}")
+        await update.message.reply_text(f"Bot error: {e}")
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle photo messages."""
-    await update.message.reply_text(
-        "📷 **Photo received!**\n\n"
-        "Please send expense data as text:\n"
-        "• `500 Tea d` (simple)\n"
-        "• `a 500 n Tea t d` (tagged)\n\n"
-        "Send /start for help"
-    )
 
-# --- Main ---
-def main():
-    """Main function to run the bot."""
+async def delete_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Test Google Sheets connection at startup
-        get_client_and_spreadsheet()
-        logging.info("✅ Google Sheets connection successful")
-        
-        # Build application
-        app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-        
-        # Add handlers
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), log_expense))
-        app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        
-        logging.info("🤖 Bot starting...")
-        app.run_polling()
-        
+        # Delete last row from current month sheet
+        now = datetime.now(IST)
+        ws = get_or_create_monthly_sheet(now)
+        last_row = get_last_data_row(ws)
+        if not last_row:
+            await update.message.reply_text("No entry to delete.")
+            return
+        # fetch last row values to show
+        last_values = ws.row_values(last_row)
+        ws.delete_rows(last_row)
+        await update.message.reply_text(f"🗑️ Deleted last entry: {last_values}")
     except Exception as e:
-        logging.error(f"❌ Failed to start bot: {e}")
+        logger.exception(f"ERROR in delete_last: {e}")
+        await update.message.reply_text(f"Delete error: {e}")
+
+
+async def edit_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        # Usage: /editlast 500 food d  OR launch interactive flow (simple implementation: take rest of message as new entry)
+        args_text = ' '.join(context.args) if context.args else ''
+        if not args_text:
+            await update.message.reply_text("Usage: /editlast <new_entry_text> Example: /editlast 500 milk d")
+            return
+        parsed = parse_message(args_text)
+        if not parsed:
+            await update.message.reply_text("Invalid format for edit. Use same formats as /start.")
+            return
+        now = datetime.now(IST)
+        ws = get_or_create_monthly_sheet(now)
+        last_row = get_last_data_row(ws)
+        if not last_row:
+            await update.message.reply_text("No entry to edit.")
+            return
+        date_str = parsed['date'].strftime('%Y-%m-%d')
+        new_row = [parsed['amount'], date_str, parsed['type'], parsed['notes'], parsed['category']]
+        # update A{row}:E{row}
+        ws.update(f"A{last_row}:E{last_row}", [new_row])
+        await update.message.reply_text("✏️ Edited last entry successfully.")
+    except Exception as e:
+        logger.exception(f"ERROR in edit_last: {e}")
+        await update.message.reply_text(f"Edit error: {e}")
+
+# ================= Main =================
+
+def main():
+    try:
+        # Validate sheets connection early
+        get_client_and_spreadsheet()
+        logger.info('GSHEET: Connection OK.')
+
+        # Python 3.13+ event loop workaround
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            logger.info('EVENT LOOP: New loop created')
+
+        app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        app.add_handler(CommandHandler('start', start))
+        app.add_handler(CommandHandler('delete', delete_last))
+        app.add_handler(CommandHandler('editlast', edit_last))
+        app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), log_expense))
+
+        logger.info('BOT: Starting polling now.')
+        app.run_polling()
+
+    except Exception as e:
+        logger.exception(f"FATAL ERROR IN BOT MAIN: {e}")
         raise
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     main()
