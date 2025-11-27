@@ -1,404 +1,440 @@
+#!/usr/bin/env python3
+"""
+ExpenseBot for Replit scheduled runs (60 minutes).
+Features:
+- Polling-based Telegram bot (python-telegram-bot v22.3)
+- Writes to Google Sheets (monthly sheets created automatically)
+- Supports raw JSON or base64 service account secret
+- Prevents duplicates, supports /editlast and /delete
+- Parses simple and tagged formats
+- Auto-shutdown after RUN_MINUTES (default 60)
+"""
+
 import os
-import logging
-import re
+import json
+import base64
 import time
+import logging
+import threading
 from datetime import datetime
-import asyncio
+from typing import Optional, Tuple, Dict, Any, List
+
 import pytz
 import gspread
-from google.oauth2.service_account import Credentials
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from google.oauth2 import service_account
+
+from telegram import Update
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler, filters, ContextTypes
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
 )
-from dotenv import load_dotenv
 
-load_dotenv()
+# ---------- Configuration ----------
+RUN_MINUTES = int(os.getenv("RUN_MINUTES", "60"))  # auto-shutdown in minutes
+TIMEZONE = os.getenv("TZ", "Asia/Kolkata")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
+SA_SECRET = os.getenv("GOOGLE_SERVICE_ACCOUNT")  # raw JSON or base64
 
-# Constants & config
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
-SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account.json")
-IST = pytz.timezone("Asia/Kolkata")
-DUPLICATE_WINDOW_SECONDS = 10  # duplicate prevention window
-
-# Logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-if not TELEGRAM_BOT_TOKEN:
-    raise RuntimeError("TELEGRAM_BOT_TOKEN missing in .env")
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN env var is required")
 if not SPREADSHEET_ID:
-    raise RuntimeError("GOOGLE_SHEETS_SPREADSHEET_ID missing in .env")
-if not os.path.exists(SERVICE_ACCOUNT_FILE):
-    raise RuntimeError(f"service_account.json not found at: {SERVICE_ACCOUNT_FILE}")
+    raise RuntimeError("SPREADSHEET_ID env var is required")
+if not SA_SECRET:
+    raise RuntimeError("GOOGLE_SERVICE_ACCOUNT env var is required (raw JSON or base64)")
 
-# Category map (keeps same mapping as previous)
-CATEGORY_MAP = {
-    "rent": "Rent",
-    "stock": "Investment",
-    "insurance": "Investment",
-    "gold": "Investment",
-    "eb bill": "EB & EC",
-    "recharge": "EB & EC",
-    "internet bill": "EB & EC",
-    "withdrawal": "Withdrawal",
-    "petrol": "Petrol",
-    "bus": "Travel",
-    "irctc": "Travel",
-    "kiger": "Travel",
-    "fasttag": "Travel",
-    "gas": "Gas & Water",
-    "water": "Gas & Water",
-    "grocery": "Grocery",
-    "flour": "Grocery",
-    "chicken": "Grocery",
-    "coconut": "Grocery",
-    "food": "Entertainment",
-    "snacks": "Entertainment",
-    "trip": "Entertainment",
-    "medicine": "Medicine",
-    "medical": "Medicine",
-    "rice": "Grocery",
-    "oil": "Grocery",
-    "flower": "Grocery",
-    "income": "Income",
-    "salary": "Income",
-    "investment": "Investment",
-    "milk": "Grocery",
-    "tea": "Entertainment",
-    "icecream": "Entertainment",
-    "car": "Travel"
-}
+# Setup logging
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+log = logging.getLogger(__name__)
 
-# In-memory state for duplicate prevention and last operation per user
-_last_message = {}  # user_id -> (text, timestamp)
-
-# ================= Google Sheets helpers =================
-
-def get_client_and_spreadsheet():
-    scopes = [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive'
-    ]
-    creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=scopes)
-    client = gspread.authorize(creds)
-    spreadsheet = client.open_by_key(SPREADSHEET_ID)
-    return client, spreadsheet
-
-
-def ensure_headers_and_format(ws):
-    headers = ["Amount", "Date", "Type", "Notes", "Category"]
+# ---------- Utils: Service account load (supports raw JSON or base64) ----------
+def load_service_account(info_str: str) -> Dict[str, Any]:
+    """Attempt to parse the provided string as JSON or base64(JSON)."""
+    # Try direct JSON
     try:
-        first_row = ws.row_values(1)
-    except Exception:
-        first_row = []
-    if [h.strip() for h in (first_row or [])] != headers:
-        ws.update("A1:E1", [headers])
-    try:
-        ws.freeze(rows=1)
+        return json.loads(info_str)
     except Exception:
         pass
-
-
-def get_or_create_monthly_sheet(date_obj: datetime):
-    month_year = date_obj.strftime("%B %Y")
-    _, spreadsheet = get_client_and_spreadsheet()
+    # Try base64
     try:
-        ws = spreadsheet.worksheet(month_year)
-        ensure_headers_and_format(ws)
-        return ws
-    except gspread.exceptions.WorksheetNotFound:
-        ws = spreadsheet.add_worksheet(title=month_year, rows=1200, cols=6)
-        ws.append_row(["Amount", "Date", "Type", "Notes", "Category"])
-        ensure_headers_and_format(ws)
-        return ws
-
-# ================= Parsing =================
-
-def categorize(notes: str) -> str:
-    notes_lower = (notes or "").lower()
-    for key, cat in CATEGORY_MAP.items():
-        if key in notes_lower:
-            return cat
-    return "Others"
-
-
-def parse_simple_format(text: str):
-    # simple: amount notes type  e.g. 500 tea d
-    parts = text.strip().split()
-    if len(parts) < 2:
-        return None
-    # amount first
-    try:
-        amount = float(parts[0].replace(',', ''))
-    except Exception:
-        return None
-    tx_type = parts[-1].lower()
-    if tx_type not in ["d", "c"]:
-        return None
-    notes = " ".join(parts[1:-1]) or ""
-    tx_type_full = "Debit" if tx_type == 'd' else 'Credit'
-    date_obj = datetime.now(IST)
-    category = categorize(notes)
-    return {
-        'amount': amount,
-        'notes': notes,
-        'type': tx_type_full,
-        'date': date_obj,
-        'category': category
-    }
-
-
-def parse_tagged_format(text: str):
-    # tagged: a <amount> n <notes> t <type> d <date>
-    # order flexible; date optional
-    tokens = text.strip().split()
-    if len(tokens) < 1:
-        return None
-    data = {'amount': None, 'notes': '', 'type': None, 'date': None}
-    i = 0
-    while i < len(tokens):
-        tok = tokens[i].lower()
-        if tok == 'a' and i + 1 < len(tokens):
-            try:
-                data['amount'] = float(tokens[i+1].replace(',', ''))
-                i += 2
-                continue
-            except Exception:
-                return None
-        if tok == 'n':
-            # gather notes until next tag or end
-            j = i+1
-            notes_parts = []
-            while j < len(tokens) and tokens[j].lower() not in ['a','n','t','d']:
-                notes_parts.append(tokens[j])
-                j += 1
-            data['notes'] = ' '.join(notes_parts)
-            i = j
-            continue
-        if tok == 't' and i + 1 < len(tokens):
-            tkn = tokens[i+1].lower()
-            if tkn in ['d', 'c', 'debit', 'credit']:
-                data['type'] = 'Debit' if tkn.startswith('d') else 'Credit'
-                i += 2
-                continue
-            else:
-                return None
-        if tok == 'd' and i + 1 < len(tokens):
-            # date formats: dd-mm-yyyy, dd-mm-yy, dd-mm
-            date_str = tokens[i+1]
-            try:
-                parts = date_str.split('-')
-                day = int(parts[0])
-                month = int(parts[1])
-                year = None
-                if len(parts) == 3:
-                    year = int(parts[2])
-                    if year < 100:  # yy
-                        year += 2000
-                else:
-                    year = datetime.now(IST).year
-                # create date
-                data['date'] = datetime(year, month, day, tzinfo=IST)
-                i += 2
-                continue
-            except Exception:
-                return None
-        # unrecognized token — move on
-        i += 1
-    if data['amount'] is None or data['type'] is None:
-        return None
-    if data['date'] is None:
-        data['date'] = datetime.now(IST)
-    data['category'] = categorize(data['notes'])
-    return data
-
-
-def parse_message(text: str):
-    # try tagged first (if starts with 'a '), else simple
-    text_strip = text.strip()
-    if text_strip.lower().startswith('a '):
-        return parse_tagged_format(text_strip)
-    return parse_simple_format(text_strip)
-
-# ================= Helpers =================
-
-def format_success_message(entry: dict) -> str:
-    # entry: amount, notes, type, date (datetime), category
-    date_str = entry['date'].strftime('%Y-%m-%d')
-    amt_str = f"₹{int(entry['amount']) if entry['amount'].is_integer() else entry['amount']}"
-    return (
-        "✅ Saved Successfully!\n\n"
-        f"💰 Amount: {amt_str}\n"
-        f"📝 Notes: {entry['notes'] or '-'}\n"
-        f"📅 Date: {date_str}\n"
-        f"📂 Category: {entry['category']}\n"
-        f"🔖 Type: {entry['type']}"
-    )
-
-
-def get_last_data_row(ws):
-    # returns index of last non-empty row (>=2). If only header exists, return None
-    values = ws.get_all_values()
-    if len(values) <= 1:
-        return None
-    return len(values)
-
-# ================= Command Handlers =================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "📘 Expense Tracker Bot\n\n"
-        "📝 Two formats supported:\n\n"
-        "1. *Simple format* (for today's date):\n"
-        "`amount notes type`\n"
-        "Example: `500 Tea d`\n\n"
-        "2. *Tagged format* (with optional date):\n"
-        "`a <amount> n <notes> t <type> d <date>`\n"
-        "Example: `a 1580 n Brush t d d 28-08-2025`\n\n"
-        "*Tags & Types:*\n"
-        "• `a` - Amount\n"
-        "• `n` - Notes\n"
-        "• `t` - Type (d/D for Debit, c/C for Credit)\n"
-        "• `d` - Date (Optional). Accepts *dd-mm-yyyy*, *dd-mm-yy*, or *dd-mm*.\n\n"
-        "Entries are saved in monthly sheets. Categories are auto-assigned! 🎯"
-    )
-    await update.message.reply_text(text, parse_mode="Markdown")
-
-
-async def help_invalid_format(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "❌ *Invalid format*\n\n"
-        "Use either:\n"
-        "• `500 Tea d` *(simple)*\n"
-        "• `a 500 n Tea t d` *(tagged)*\n\n"
-        "Send /start for more details"
-    )
-    await update.message.reply_text(text, parse_mode="Markdown")
-
-
-
-async def log_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        user = update.effective_user
-        user_id = user.id if user else None
-        text = (update.message.text or "").strip()
-        logger.info(f"RAW UPDATE MESSAGE from {user_id}: {text}")
-
-        # Duplicate prevention (Option A with 5 sec)
-        now_ts = time.time()
-        last = _last_message.get(user_id)
-        if last and last[0] == text and (now_ts - last[1]) <= DUPLICATE_WINDOW_SECONDS:
-            await update.message.reply_text("⚠️ Duplicate entry ignored (sent too quickly).")
-            return
-        # update last message
-        _last_message[user_id] = (text, now_ts)
-
-        parsed = parse_message(text)
-        if not parsed:
-            await help_invalid_format(update, context)
-            return
-
-        # prepare sheet append
-        ws = get_or_create_monthly_sheet(parsed['date'])
-        date_str = parsed['date'].strftime('%Y-%m-%d')
-        row = [parsed['amount'], date_str, parsed['type'], parsed['notes'], parsed['category']]
-
-        # append row and reply with formatted message
-        try:
-            ws.append_row(row)
-            reply = format_success_message({
-                'amount': parsed['amount'],
-                'notes': parsed['notes'],
-                'type': parsed['type'],
-                'date': parsed['date'],
-                'category': parsed['category']
-            })
-            await update.message.reply_text(reply)
-            logger.info('GSHEET: Row append SUCCESS')
-        except Exception as e:
-            logger.error(f"GSHEET WRITE ERROR: {e}")
-            await update.message.reply_text(f"GSHEET ERROR: {e}")
-
+        decoded = base64.b64decode(info_str)
+        return json.loads(decoded.decode("utf-8"))
     except Exception as e:
-        logger.exception(f"ERROR in log_expense: {e}")
-        await update.message.reply_text(f"Bot error: {e}")
-
-
-async def delete_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        # Delete last row from current month sheet
-        now = datetime.now(IST)
-        ws = get_or_create_monthly_sheet(now)
-        last_row = get_last_data_row(ws)
-        if not last_row:
-            await update.message.reply_text("No entry to delete.")
-            return
-        # fetch last row values to show
-        last_values = ws.row_values(last_row)
-        ws.delete_rows(last_row)
-        await update.message.reply_text(f"🗑️ Deleted last entry: {last_values}")
-    except Exception as e:
-        logger.exception(f"ERROR in delete_last: {e}")
-        await update.message.reply_text(f"Delete error: {e}")
-
-
-async def edit_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        # Usage: /editlast 500 food d  OR launch interactive flow (simple implementation: take rest of message as new entry)
-        args_text = ' '.join(context.args) if context.args else ''
-        if not args_text:
-            await update.message.reply_text("Usage: /editlast <new_entry_text> Example: /editlast 500 milk d")
-            return
-        parsed = parse_message(args_text)
-        if not parsed:
-            await update.message.reply_text("Invalid format for edit. Use same formats as /start.")
-            return
-        now = datetime.now(IST)
-        ws = get_or_create_monthly_sheet(now)
-        last_row = get_last_data_row(ws)
-        if not last_row:
-            await update.message.reply_text("No entry to edit.")
-            return
-        date_str = parsed['date'].strftime('%Y-%m-%d')
-        new_row = [parsed['amount'], date_str, parsed['type'], parsed['notes'], parsed['category']]
-        # update A{row}:E{row}
-        ws.update(f"A{last_row}:E{last_row}", [new_row])
-        await update.message.reply_text("✏️ Edited last entry successfully.")
-    except Exception as e:
-        logger.exception(f"ERROR in edit_last: {e}")
-        await update.message.reply_text(f"Edit error: {e}")
-
-# ================= Main =================
-
-def main():
-    try:
-        # Validate sheets connection early
-        get_client_and_spreadsheet()
-        logger.info('GSHEET: Connection OK.')
-
-        # Python 3.13+ event loop workaround
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            logger.info('EVENT LOOP: New loop created')
-
-        app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-        app.add_handler(CommandHandler('start', start))
-        app.add_handler(CommandHandler('delete', delete_last))
-        app.add_handler(CommandHandler('editlast', edit_last))
-        app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), log_expense))
-
-        logger.info('BOT: Starting polling now.')
-        app.run_polling()
-
-    except Exception as e:
-        logger.exception(f"FATAL ERROR IN BOT MAIN: {e}")
+        log.error("Failed to decode GOOGLE_SERVICE_ACCOUNT: %s", e)
         raise
 
+# ---------- Google Sheets helpers ----------
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
-if __name__ == '__main__':
-    main()
+def get_gspread_client() -> gspread.Client:
+    info = load_service_account(SA_SECRET)
+    creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    return client
+
+def month_sheet_title_for_date(dt: datetime) -> str:
+    # Example: "Nov 2025"
+    return dt.strftime("%b %Y")
+
+def ensure_month_sheet(wb: gspread.Spreadsheet, title: str) -> gspread.Worksheet:
+    try:
+        return wb.worksheet(title)
+    except gspread.exceptions.WorksheetNotFound:
+        # create with headers
+        sh = wb.add_worksheet(title=title, rows="1000", cols="20")
+        headers = ["Timestamp", "Date", "Amount", "Notes", "Category", "Type", "TelegramUser"]
+        sh.append_row(headers)
+        return sh
+
+def fetch_recent_rows(sh: gspread.Worksheet, n: int = 200) -> List[List[str]]:
+    vals = sh.get_all_values()
+    if not vals:
+        return []
+    # exclude header
+    return vals[1:][-n:]
+
+def is_duplicate(sh: gspread.Worksheet, date_s: str, amount_s: str, notes: str, typ: str) -> bool:
+    recent = fetch_recent_rows(sh, 500)
+    for r in recent:
+        # columns: Timestamp, Date, Amount, Notes, Category, Type, TelegramUser
+        if len(r) < 6:
+            continue
+        _, d, a, n, _, t, *_ = (r + [""] * 7)
+        if a.strip() == amount_s.strip() and n.strip().lower() == notes.strip().lower() and d.strip() == date_s.strip() and t.strip().lower() == typ.strip().lower():
+            return True
+    return False
+
+# ---------- Basic category auto-assign ----------
+CATEGORY_KEYWORDS = {
+    "grocery": ["grocery", "groceries", "supermarket", "bigbasket", "kgf"],
+    "fuel": ["fuel", "petrol", "diesel", "gas", "bpcl", "hpcl"],
+    "rent": ["rent", "room", "house"],
+    "food": ["tea", "coffee", "dosa", "breakfast", "lunch", "dinner", "restaurant", "food", "eats"],
+    "travel": ["uber", "ola", "taxi", "bus", "train", "flight"],
+    "shopping": ["amazon", "flipkart", "shirt", "pant", "shoe", "shopping"],
+    "health": ["pharmacy", "doctor", "hospital", "medicine"],
+    "entertainment": ["netflix", "prime", "movie"],
+}
+
+def assign_category(notes: str) -> str:
+    n = notes.lower()
+    for cat, keys in CATEGORY_KEYWORDS.items():
+        for k in keys:
+            if k in n:
+                return cat.capitalize()
+    return "Misc"
+
+# ---------- Message parsing ----------
+def parse_date_token(tok: str) -> Optional[str]:
+    """
+    Accepts dd-mm-yyyy, dd-mm-yy, dd-mm
+    Returns ISO date string dd-mm-yyyy (as used in sheet display)
+    """
+    tok = tok.strip()
+    for fmt in ("%d-%m-%Y", "%d-%m-%y", "%d-%m"):
+        try:
+            dt = datetime.strptime(tok, fmt)
+            if fmt == "%d-%m":
+                # assume current year in TIMEZONE
+                tz = pytz.timezone(TIMEZONE)
+                year = datetime.now(tz).year
+                dt = dt.replace(year=year)
+            return dt.strftime("%d-%m-%Y")
+        except Exception:
+            continue
+    return None
+
+def parse_tagged(text: str) -> Optional[Dict[str,str]]:
+    """
+    Tagged format: a <amount> n <notes> t <type> d <date (optional)>
+    tokens can be in any order; tags a/n/t/d
+    """
+    toks = text.strip().split()
+    out = {"amount": "", "notes": "", "type": "", "date": ""}
+    key = None
+    i = 0
+    while i < len(toks):
+        t = toks[i]
+        if t.lower() in ("a", "n", "t", "d"):
+            key = t.lower()
+            i += 1
+            # gather following tokens until next tag or end
+            val_parts = []
+            while i < len(toks) and toks[i].lower() not in ("a","n","t","d"):
+                val_parts.append(toks[i])
+                i += 1
+            out_map = {"a":"amount","n":"notes","t":"type","d":"date"}
+            out[out_map[key]] = " ".join(val_parts).strip()
+        else:
+            # malformed - skip token
+            i += 1
+    # validate amount and type
+    if not out["amount"]:
+        return None
+    # try parse amount numeric
+    try:
+        float(out["amount"].replace(",",""))
+    except Exception:
+        return None
+    # parse date if present
+    if out["date"]:
+        dd = parse_date_token(out["date"])
+        if not dd:
+            return None
+        out["date"] = dd
+    else:
+        # default today's date (in IST)
+        out["date"] = datetime.now(pytz.timezone(TIMEZONE)).strftime("%d-%m-%Y")
+    # normalize type
+    if out["type"]:
+        t = out["type"].strip().lower()
+        out["type"] = "Debit" if t.startswith("d") else ("Credit" if t.startswith("c") else "")
+    else:
+        out["type"] = "Debit"
+    return out
+
+def parse_simple(text: str) -> Optional[Dict[str,str]]:
+    """
+    Simple: <amount> <notes> <type>
+    type must be last token (d/D or c/C)
+    """
+    toks = text.strip().split()
+    if len(toks) < 2:
+        return None
+    last = toks[-1]
+    typ = None
+    if last.lower() in ("d","debit"):
+        typ = "Debit"
+        notes = " ".join(toks[1:-1]) if len(toks) > 2 else toks[1] if len(toks)==2 else ""
+    elif last.lower() in ("c","credit"):
+        typ = "Credit"
+        notes = " ".join(toks[1:-1]) if len(toks) > 2 else toks[1] if len(toks)==2 else ""
+    else:
+        # maybe user gave no type; treat as debit and everything after amount as notes
+        typ = "Debit"
+        notes = " ".join(toks[1:])
+    # amount
+    try:
+        amt = toks[0].replace(",","")
+        float(amt)
+    except Exception:
+        return None
+    date_s = datetime.now(pytz.timezone(TIMEZONE)).strftime("%d-%m-%Y")
+    return {"amount": amt, "notes": notes.strip(), "type": typ, "date": date_s}
+
+def parse_message(text: str) -> Optional[Dict[str,str]]:
+    # try tagged first
+    tagged = parse_tagged(text)
+    if tagged:
+        return tagged
+    # try simple
+    simple = parse_simple(text)
+    if simple:
+        return simple
+    return None
+
+# ---------- Bot responses ----------
+START_MESSAGE = """🤖 Expense Tracker Bot
+
+📝 Two formats supported:
+
+1. Simple format (for today's date):
+amount notes type
+Example: 500 Tea d
+
+2. Tagged format (with optional date):
+a <amount> n <notes> t <type> d <date>
+Example: a 1580 n Brush t d d 28-08-2025
+
+Tags & Types:
+• a - Amount
+• n - Notes
+• t - Type (d/D for Debit, c/C for Credit)
+• d - Date (Optional). Accepts dd-mm-yyyy, dd-mm-yy, or dd-mm.
+
+Entries are saved in monthly sheets. Categories are auto-assigned! 🎯
+"""
+
+INVALID_MESSAGE = """❌ Invalid format
+
+Use either:
+• 500 Tea d (simple)
+• a 500 n Tea t d d (tagged)
+
+Send /start for more details
+"""
+
+def format_saved_reply(amount: str, notes: str, date_s: str, category: str, typ: str) -> str:
+    # e.g.
+    # ✅ Saved Successfully!
+    # 💰 Amount: ₹110
+    # 📝 Notes: grocery
+    # 📅 Date: 2025-11-15
+    # 📂 Category: Grocery
+    # 🔖 Type: Debit
+    return (
+        "✅ Saved Successfully!\n\n"
+        f"💰 Amount: ₹{amount}\n"
+        f"📝 Notes: {notes}\n"
+        f"📅 Date: {date_s}\n"
+        f"📂 Category: {category}\n"
+        f"🔖 Type: {typ}"
+    )
+
+# ---------- Handlers ----------
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(START_MESSAGE)
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(START_MESSAGE)
+
+async def invalid_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(INVALID_MESSAGE)
+
+async def delete_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Deletes the last entry in the current month's sheet (asks for confirmation if necessary).
+    """
+    client = context.bot_data.get("gclient")
+    wb = context.bot_data.get("workbook")
+    if not client or not wb:
+        await update.message.reply_text("Google Sheets not connected.")
+        return
+    tz = pytz.timezone(TIMEZONE)
+    now = datetime.now(tz)
+    sheet_title = month_sheet_title_for_date(now)
+    sh = ensure_month_sheet(wb, sheet_title)
+    vals = sh.get_all_values()
+    if len(vals) <= 1:
+        await update.message.reply_text("No entries to delete.")
+        return
+    last_row_index = len(vals)  # 1-based including header
+    last_row = vals[-1]
+    # delete last row
+    sh.delete_rows(last_row_index)
+    await update.message.reply_text("✅ Last entry deleted.")
+
+async def edit_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /editlast <new entry in same input format>
+    Edits the last row in current month sheet with new parsed data.
+    """
+    txt = update.message.text or ""
+    rest = txt[len("/editlast"):].strip()
+    if not rest:
+        await update.message.reply_text("Usage: /editlast <new entry in same format>\nExample: /editlast 500 Tea d")
+        return
+    parsed = parse_message(rest)
+    if not parsed:
+        await update.message.reply_text(INVALID_MESSAGE)
+        return
+    client = context.bot_data.get("gclient")
+    wb = context.bot_data.get("workbook")
+    if not client or not wb:
+        await update.message.reply_text("Google Sheets not connected.")
+        return
+    tz = pytz.timezone(TIMEZONE)
+    dt = datetime.now(tz)
+    sheet_title = month_sheet_title_for_date(dt)
+    sh = ensure_month_sheet(wb, sheet_title)
+    vals = sh.get_all_values()
+    if len(vals) <= 1:
+        await update.message.reply_text("No entries to edit.")
+        return
+    # prepare row content
+    timestamp = datetime.now(pytz.timezone(TIMEZONE)).isoformat()
+    category = assign_category(parsed["notes"])
+    new_row = [timestamp, parsed["date"], parsed["amount"], parsed["notes"], category, parsed["type"], update.message.from_user.first_name]
+    # update last row
+    last_row_index = len(vals)
+    # gspread is 1-based indexing; update by row
+    sh.delete_rows(last_row_index)
+    sh.append_row(new_row)
+    await update.message.reply_text("✅ Last entry updated.\n\n" + format_saved_reply(parsed["amount"], parsed["notes"], parsed["date"], category, parsed["type"]))
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    if not text:
+        await update.message.reply_text(INVALID_MESSAGE)
+        return
+    parsed = parse_message(text)
+    if not parsed:
+        await update.message.reply_text(INVALID_MESSAGE)
+        return
+    # Connect to Google client from context
+    client = context.bot_data.get("gclient")
+    wb = context.bot_data.get("workbook")
+    if not client or not wb:
+        await update.message.reply_text("Google Sheets not connected on this run. Try again later.")
+        return
+    # determine target sheet
+    try:
+        dt = datetime.strptime(parsed["date"], "%d-%m-%Y")
+    except Exception:
+        dt = datetime.now(pytz.timezone(TIMEZONE))
+    sheet_title = month_sheet_title_for_date(dt)
+    sh = ensure_month_sheet(wb, sheet_title)
+    # duplicate prevention
+    if is_duplicate(sh, parsed["date"], parsed["amount"], parsed["notes"], parsed["type"]):
+        await update.message.reply_text("⚠️ Duplicate detected — entry ignored.")
+        return
+    # append row
+    timestamp = datetime.now(pytz.timezone(TIMEZONE)).isoformat()
+    category = assign_category(parsed["notes"])
+    row = [timestamp, parsed["date"], parsed["amount"], parsed["notes"], category, parsed["type"], update.message.from_user.first_name]
+    sh.append_row(row)
+    await update.message.reply_text(format_saved_reply(parsed["amount"], parsed["notes"], parsed["date"], category, parsed["type"]))
+
+# ---------- Startup and main ----------
+def create_application(gclient, workbook) -> Application:
+    application = Application.builder().token(BOT_TOKEN).build()
+    # store clients in bot_data for handlers
+    application.bot_data["gclient"] = gclient
+    application.bot_data["workbook"] = workbook
+
+    # handlers
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("delete", delete_last))
+    application.add_handler(CommandHandler("editlast", edit_last))
+    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
+    return application
+
+def delayed_kill(minutes: int):
+    """Daemon thread to kill process after minutes."""
+    log.info("Auto-termination scheduled in %d minutes.", minutes)
+    time.sleep(minutes * 60)
+    log.info("Auto-termination: exiting process now.")
+    # Use os._exit to forcibly exit (clean enough for Replit runs)
+    os._exit(0)
+
+def run_bot():
+    # Setup Google client and workbook
+    gclient = get_gspread_client()
+    wb = gclient.open_by_key(SPREADSHEET_ID)
+    log.info("✅ Google Sheets connected (spreadsheet id=%s).", SPREADSHEET_ID)
+
+    # Build app
+    app = create_application(gclient, wb)
+
+    # Start auto-kill thread
+    t = threading.Thread(target=delayed_kill, args=(RUN_MINUTES,), daemon=True)
+    t.start()
+
+    # Start polling (blocking). When os._exit runs, process ends.
+    log.info("🤖 Bot starting (will run for %d minutes)...", RUN_MINUTES)
+    app.run_polling()
+
+if __name__ == "__main__":
+    try:
+        run_bot()
+    except SystemExit:
+        log.info("SystemExit called - exiting.")
+    except Exception as exc:
+        log.exception("Bot crashed: %s", exc)
+        raise
