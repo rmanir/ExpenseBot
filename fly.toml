@@ -1,6 +1,8 @@
 app = "expensebot-app"
 primary_region = "sin"
 
+min_machines_running = 0
+
 [build]
   dockerfile = "Dockerfile"
 
@@ -8,9 +10,6 @@ primary_region = "sin"
   PYTHONUNBUFFERED = "1"
   TZ = "Asia/Kolkata"
 
-# -------------------------
-# HTTP service for health check
-# -------------------------
 [[services]]
   internal_port = 8080
   processes = ["app"]
