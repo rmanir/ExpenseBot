@@ -6,6 +6,8 @@
 app = 'expensebot-app'
 primary_region = 'sin'
 
+min_machines_running = 0
+
 [build]
   dockerfile = 'Dockerfile'
 
