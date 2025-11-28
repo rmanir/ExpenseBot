@@ -1,0 +1,53 @@
+name: ExpenseBot Scheduled Start/Stop
+
+on:
+  schedule:
+    # ========== DAILY SCHEDULE IN UTC (converted from IST) ==========
+    # 12:01 AM IST → 18:31 UTC (Start)
+    - cron: "31 18 * * *"
+    # 1:01 AM IST → 19:31 UTC (Stop)
+    - cron: "31 19 * * *"
+
+    # 12:01 PM IST → 06:31 UTC (Start)
+    - cron: "31 6 * * *"
+    # 1:01 PM IST → 07:31 UTC (Stop)
+    - cron: "31 7 * * *"
+
+  workflow_dispatch: {}   # Allows manual start/stop if you want
+
+jobs:
+  control-fly-machine:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Fly.io CLI
+        run: |
+          curl -L https://fly.io/install.sh | sh
+          echo "${HOME}/.fly/bin" >> $GITHUB_PATH
+
+      - name: Authenticate with Fly.io
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          fly auth token $FLY_API_TOKEN
+
+      - name: Start or Stop Machine Based on UTC Time
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          # Current UTC hour
+          HOUR=$(date -u +"%H")
+          echo "Current UTC Hour: $HOUR"
+
+          APP="expensebot-app"
+          MACHINE="e78464eae37e68"
+
+          if [ "$HOUR" = "18" ] || [ "$HOUR" = "6" ]; then
+            echo "Starting machine..."
+            fly machines start $MACHINE --app $APP
+          fi
+
+          if [ "$HOUR" = "19" ] || [ "$HOUR" = "7" ]; then
+            echo "Stopping machine..."
+            fly machines stop $MACHINE --app $APP
+          fi
