@@ -1,5 +1,0 @@
-run = ["bash", "-c", "python3 bot.py"]
-entrypoint = "bot.py"
-
-[env]
-PYTHON_VERSION = "3.12"

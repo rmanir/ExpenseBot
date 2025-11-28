@@ -1,0 +1,30 @@
+app = "expensebot-app"
+primary_region = "sin" # Singapore (best for India)
+
+[build]
+dockerfile = "Dockerfile"
+
+[env]
+PYTHONUNBUFFERED = "1"
+TZ = "Asia/Kolkata"
+
+# ============================
+#   Fly Machine Auto Stop
+# ============================
+# Auto-stop after 60 minutes
+[[metrics]]
+port = 8080
+path = "/metrics"
+
+[checks]
+[checks.health]
+type = "http"
+interval = "30s"
+timeout = "5s"
+grace_period = "30s"
+method = "get"
+path = "/health"
+
+# ==========================================================
+# OPTIONAL (we can add scheduled jobs after deploying)
+# ==========================================================

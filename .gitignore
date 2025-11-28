@@ -1,32 +1,28 @@
-# Python venv
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
 .venv/
 env/
 venv/
-streamlit_env/
 
-# Environment variables
+# Credentials
 .env
-*.env
-
-# Google Credentials
-credentials/*.json
+credentials/
+service_account.json
 *.json
 
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# VSCode
-.vscode/
-
-# Streamlit
-.streamlit/
-
-# Windows files
-Thumbs.db
-Desktop.ini
-
-# macOS
+# OS files
 .DS_Store
+
+# Replit
+.replit
+replit.nix
+
+# IDE
+.vscode/
+.idea/
+
+# Build artifacts
+*.log
