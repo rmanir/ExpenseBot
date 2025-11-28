@@ -1,27 +1,34 @@
-app = "expensebot-app"
-primary_region = "sin"
+# fly.toml app configuration file generated for expensebot-app on 2025-11-28T07:11:55+05:30
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'expensebot-app'
+primary_region = 'sin'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  PYTHONUNBUFFERED = "1"
-  TZ = "Asia/Kolkata"
+  PYTHONUNBUFFERED = '1'
+  TZ = 'Asia/Kolkata'
 
-# -------------------------
-# HTTP service for health check
-# -------------------------
 [[services]]
+  protocol = 'tcp'
   internal_port = 8080
-  processes = ["app"]
-  protocol = "tcp"
+  processes = ['app']
 
   [[services.ports]]
     port = 8080
 
   [[services.http_checks]]
-    interval = "30s"
-    timeout = "5s"
-    method = "get"
-    path = "/"
-    grace_period = "30s"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '30s'
+    method = 'get'
+    path = '/'
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
