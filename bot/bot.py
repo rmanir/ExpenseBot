@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-ExpenseBot for Replit scheduled runs (60 minutes).
+ExpenseBot for scheduled runs (hybrid shutdown: idle OR max runtime).
 Features:
 - Polling-based Telegram bot (python-telegram-bot v22.3)
 - Writes to Google Sheets (monthly sheets created automatically)
-- Supports raw JSON or base64 service account secret
+- Supports raw JSON or base64 service account secret (GOOGLE_SERVICE_ACCOUNT env var)
 - Prevents duplicates, supports /editlast and /delete
 - Parses simple and tagged formats
-- Auto-shutdown after RUN_MINUTES (default 60)
+- Hybrid shutdown: stops after IDLE_SECONDS of inactivity OR RUN_MINUTES of runtime
 """
 
 import os
@@ -16,7 +16,7 @@ import base64
 import time
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Tuple, Dict, Any, List
 
 import pytz
@@ -33,7 +33,8 @@ from telegram.ext import (
 )
 
 # ---------- Configuration ----------
-RUN_MINUTES = int(os.getenv("RUN_MINUTES", "60"))  # auto-shutdown in minutes
+RUN_MINUTES = int(os.getenv("RUN_MINUTES", "60"))  # auto-shutdown in minutes (max runtime)
+IDLE_SECONDS = int(os.getenv("IDLE_SECONDS", "15"))  # stop early when no new updates seen
 TIMEZONE = os.getenv("TZ", "Asia/Kolkata")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
@@ -51,6 +52,20 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 log = logging.getLogger(__name__)
+
+# Global to track last activity timestamp
+_last_activity = time.time()
+# Lock for updating last activity
+_activity_lock = threading.Lock()
+
+def touch_activity():
+    global _last_activity
+    with _activity_lock:
+        _last_activity = time.time()
+
+def time_since_last_activity() -> float:
+    with _activity_lock:
+        return time.time() - _last_activity
 
 # ---------- Utils: Service account load (supports raw JSON or base64) ----------
 def load_service_account(info_str: str) -> Dict[str, Any]:
@@ -133,7 +148,7 @@ def assign_category(notes: str) -> str:
 def parse_date_token(tok: str) -> Optional[str]:
     """
     Accepts dd-mm-yyyy, dd-mm-yy, dd-mm
-    Returns ISO date string dd-mm-yyyy (as used in sheet display)
+    Returns normalized date string dd-mm-yyyy
     """
     tok = tok.strip()
     for fmt in ("%d-%m-%Y", "%d-%m-%y", "%d-%m"):
@@ -156,14 +171,12 @@ def parse_tagged(text: str) -> Optional[Dict[str,str]]:
     """
     toks = text.strip().split()
     out = {"amount": "", "notes": "", "type": "", "date": ""}
-    key = None
     i = 0
     while i < len(toks):
         t = toks[i]
         if t.lower() in ("a", "n", "t", "d"):
             key = t.lower()
             i += 1
-            # gather following tokens until next tag or end
             val_parts = []
             while i < len(toks) and toks[i].lower() not in ("a","n","t","d"):
                 val_parts.append(toks[i])
@@ -210,10 +223,10 @@ def parse_simple(text: str) -> Optional[Dict[str,str]]:
     typ = None
     if last.lower() in ("d","debit"):
         typ = "Debit"
-        notes = " ".join(toks[1:-1]) if len(toks) > 2 else toks[1] if len(toks)==2 else ""
+        notes = " ".join(toks[1:-1]) if len(toks) > 2 else (toks[1] if len(toks)==2 else "")
     elif last.lower() in ("c","credit"):
         typ = "Credit"
-        notes = " ".join(toks[1:-1]) if len(toks) > 2 else toks[1] if len(toks)==2 else ""
+        notes = " ".join(toks[1:-1]) if len(toks) > 2 else (toks[1] if len(toks)==2 else "")
     else:
         # maybe user gave no type; treat as debit and everything after amount as notes
         typ = "Debit"
@@ -298,7 +311,7 @@ async def invalid_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def delete_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Deletes the last entry in the current month's sheet (asks for confirmation if necessary).
+    Deletes the last entry in the current month's sheet.
     """
     client = context.bot_data.get("gclient")
     wb = context.bot_data.get("workbook")
@@ -314,10 +327,9 @@ async def delete_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No entries to delete.")
         return
     last_row_index = len(vals)  # 1-based including header
-    last_row = vals[-1]
-    # delete last row
     sh.delete_rows(last_row_index)
     await update.message.reply_text("✅ Last entry deleted.")
+    touch_activity()
 
 async def edit_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -352,10 +364,10 @@ async def edit_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_row = [timestamp, parsed["date"], parsed["amount"], parsed["notes"], category, parsed["type"], update.message.from_user.first_name]
     # update last row
     last_row_index = len(vals)
-    # gspread is 1-based indexing; update by row
     sh.delete_rows(last_row_index)
     sh.append_row(new_row)
     await update.message.reply_text("✅ Last entry updated.\n\n" + format_saved_reply(parsed["amount"], parsed["notes"], parsed["date"], category, parsed["type"]))
+    touch_activity()
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
@@ -382,6 +394,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # duplicate prevention
     if is_duplicate(sh, parsed["date"], parsed["amount"], parsed["notes"], parsed["type"]):
         await update.message.reply_text("⚠️ Duplicate detected — entry ignored.")
+        touch_activity()
         return
     # append row
     timestamp = datetime.now(pytz.timezone(TIMEZONE)).isoformat()
@@ -389,8 +402,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = [timestamp, parsed["date"], parsed["amount"], parsed["notes"], category, parsed["type"], update.message.from_user.first_name]
     sh.append_row(row)
     await update.message.reply_text(format_saved_reply(parsed["amount"], parsed["notes"], parsed["date"], category, parsed["type"]))
+    touch_activity()
 
-# ---------- Startup and main ----------
+# ---------- Startup and application ----------
 def create_application(gclient, workbook) -> Application:
     application = Application.builder().token(BOT_TOKEN).build()
     # store clients in bot_data for handlers
@@ -405,13 +419,36 @@ def create_application(gclient, workbook) -> Application:
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
     return application
 
-def delayed_kill(minutes: int):
-    """Daemon thread to kill process after minutes."""
-    log.info("Auto-termination scheduled in %d minutes.", minutes)
-    time.sleep(minutes * 60)
-    log.info("Auto-termination: exiting process now.")
-    # Use os._exit to forcibly exit (clean enough for Replit runs)
-    os._exit(0)
+def monitor_and_stop(app: Application, start_time: float):
+    """
+    Monitor thread: stops the app when ANY of:
+    - idle timeout reached (no activity for IDLE_SECONDS)
+    - max runtime exceeded (RUN_MINUTES)
+    - app is None or not running
+    """
+    log.info("Monitor thread started: max %d minutes, idle %d seconds.", RUN_MINUTES, IDLE_SECONDS)
+    while True:
+        # check runtime
+        elapsed = (time.time() - start_time)
+        if elapsed >= RUN_MINUTES * 60:
+            log.info("Max runtime %d minutes reached (%.1f seconds). Exiting.", RUN_MINUTES, elapsed)
+            try:
+                # graceful stop of polling then hard exit
+                app.stop()
+            except Exception:
+                log.exception("Error while stopping app gracefully.")
+            time.sleep(1)
+            os._exit(0)
+        # check idle
+        if time_since_last_activity() >= IDLE_SECONDS:
+            log.info("Idle timeout: no activity for %d seconds. Exiting.", IDLE_SECONDS)
+            try:
+                app.stop()
+            except Exception:
+                log.exception("Error while stopping app gracefully on idle.")
+            time.sleep(1)
+            os._exit(0)
+        time.sleep(1)
 
 def run_bot():
     # Setup Google client and workbook
@@ -422,12 +459,16 @@ def run_bot():
     # Build app
     app = create_application(gclient, wb)
 
-    # Start auto-kill thread
-    t = threading.Thread(target=delayed_kill, args=(RUN_MINUTES,), daemon=True)
+    # set initial activity to now
+    touch_activity()
+    start_time = time.time()
+
+    # Start monitor thread
+    t = threading.Thread(target=monitor_and_stop, args=(app, start_time), daemon=True)
     t.start()
 
     # Start polling (blocking). When os._exit runs, process ends.
-    log.info("🤖 Bot starting (will run for %d minutes)...", RUN_MINUTES)
+    log.info("🤖 Bot starting (max %d minutes, idle %d seconds)...", RUN_MINUTES, IDLE_SECONDS)
     app.run_polling()
 
 if __name__ == "__main__":
