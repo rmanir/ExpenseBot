@@ -1,6 +1,7 @@
 app = "expensebot-app"
 primary_region = "sin"
 
+# Allow auto-shutdown when idle
 min_machines_running = 0
 
 [build]
@@ -10,16 +11,10 @@ min_machines_running = 0
   PYTHONUNBUFFERED = "1"
   TZ = "Asia/Kolkata"
 
-# Health server used only for Fly to know the container is alive
+# Health check service (NOT exposed publicly)
 [[services]]
-  protocol = "tcp"
   internal_port = 8080
-  processes = ["app"]
-
-  # DO NOT expose a public HTTP port (bot does not serve a website)
-  [[services.ports]]
-    handlers = ["http"]
-    port = 80
+  protocol = "tcp"
 
   [[services.http_checks]]
     interval = "30s"
