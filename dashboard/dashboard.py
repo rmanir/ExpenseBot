@@ -80,7 +80,7 @@ def get_spreadsheet():
     client = get_gspread_client()
 
     SPREADSHEET_ID = os.environ.get("GOOGLE_SHEETS_SPREADSHEET_ID")
-    if not SPREADHEET_ID:
+    if not SPREADSHEET_ID:
         st.error("Missing GOOGLE_SHEETS_SPREADSHEET_ID in Streamlit secrets.")
         st.stop()
 
