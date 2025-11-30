@@ -127,13 +127,15 @@ def is_duplicate(sh: gspread.Worksheet, date_s: str, amount_s: str, notes: str, 
 # ---------- Basic category auto-assign ----------
 CATEGORY_KEYWORDS = {
     "grocery": ["grocery", "groceries", "supermarket", "bigbasket", "kgf"],
-    "fuel": ["fuel", "petrol", "diesel", "gas", "bpcl", "hpcl"],
+    "petrol": ["fuel", "petrol", "diesel", "gas", "bpcl", "hpcl"],
     "rent": ["rent", "room", "house"],
-    "food": ["tea", "coffee", "dosa", "breakfast", "lunch", "dinner", "restaurant", "food", "eats"],
-    "travel": ["uber", "ola", "taxi", "bus", "train", "flight"],
-    "shopping": ["amazon", "flipkart", "shirt", "pant", "shoe", "shopping"],
-    "health": ["pharmacy", "doctor", "hospital", "medicine"],
-    "entertainment": ["netflix", "prime", "movie"],
+    "travel": ["uber", "ola", "taxi", "bus", "train", "flight", "kiger", "car petrol", "redbus", "cab"],
+    "medicine": ["pharmacy", "doctor", "hospital", "medicine"],
+    "entertainment": ["netflix", "prime", "movie", "tea", "coffee", "dosa", "breakfast", "lunch", "dinner", "restaurant", "food", "eats", "snacks"],
+    "eb & ec" : ["eb", "recharge", "current bill", "wifi"],
+    "Water & Gas" : ["water", "gas"],
+    "investment" : ["stock", "gold"],
+    "income" : ["salary", "pons"]
 }
 
 def assign_category(notes: str) -> str:
