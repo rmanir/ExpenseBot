@@ -1,36 +1,29 @@
-# fly.toml app configuration file generated for expensebot-app on 2025-11-28T07:11:55+05:30
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
+app = "expensebot-app"
+primary_region = "sin"
 
-app = 'expensebot-app'
-primary_region = 'sin'
-
+# Allow auto-shutdown when idle
 min_machines_running = 0
 
 [build]
-  dockerfile = 'Dockerfile'
+  dockerfile = "Dockerfile"
 
 [env]
-  PYTHONUNBUFFERED = '1'
-  TZ = 'Asia/Kolkata'
+  PYTHONUNBUFFERED = "1"
+  TZ = "Asia/Kolkata"
 
+# Health check service (NOT exposed publicly)
 [[services]]
-  protocol = 'tcp'
   internal_port = 8080
-  processes = ['app']
-
-  [[services.ports]]
-    port = 8080
+  protocol = "tcp"
 
   [[services.http_checks]]
-    interval = '30s'
-    timeout = '5s'
-    grace_period = '30s'
-    method = 'get'
-    path = '/'
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "get"
+    path = "/"
 
 [[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
+  memory = "256mb"
+  cpu_kind = "shared"
   cpus = 1
