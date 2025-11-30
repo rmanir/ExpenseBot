@@ -80,14 +80,14 @@ def get_spreadsheet():
     client = get_gspread_client()
 
     SPREADSHEET_ID = os.environ.get("GOOGLE_SHEETS_SPREADSHEET_ID")
-    if not SPREADHEET_ID := SPREADSHEET_ID:
+    if not SPREADSHEET_ID:
         st.error("Missing GOOGLE_SHEETS_SPREADSHEET_ID in Streamlit secrets.")
         st.stop()
 
     try:
         return client.open_by_key(SPREADSHEET_ID)
     except SpreadsheetNotFound:
-        st.error("Spreadsheet not found. Check sharing permissions.")
+        st.error("Spreadsheet not found. Check if your service account email has access.")
         st.stop()
     except Exception as e:
         st.error(f"Error opening spreadsheet: {e}")
