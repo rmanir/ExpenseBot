@@ -51,8 +51,8 @@ def load_credentials():
 #  CONSTANTS
 # =========================================================
 NEED_CATS = {
-    "Rent", "Grocery", "Petrol", "EB & EC", "Water & Gas", "Gas & Water",
-    "Travel", "Medicine"
+    "Rent", "Grocery", "Petrol", "EB & EC", "Water & Gas",
+    "Gas & Water", "Travel", "Medicine"
 }
 WANT_CATS = {"Entertainment"}
 INVEST_CATS = {"Investment"}
@@ -80,7 +80,7 @@ def get_spreadsheet():
     client = get_gspread_client()
 
     SPREADSHEET_ID = os.environ.get("GOOGLE_SHEETS_SPREADSHEET_ID")
-    if not SPREADSHEET_ID:
+    if not SPREADHEET_ID := SPREADSHEET_ID:
         st.error("Missing GOOGLE_SHEETS_SPREADSHEET_ID in Streamlit secrets.")
         st.stop()
 
