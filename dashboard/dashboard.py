@@ -98,34 +98,57 @@ def get_spreadsheet():
 #  DATA LOADERS
 # =========================================================
 def load_sheet_data(ws):
+    """
+    Load worksheet records into a cleaned DataFrame.
+    Retries on transient API errors and returns an empty DataFrame on failure.
+    """
     max_retries = 5
     base_delay = 1
 
     for attempt in range(max_retries):
         try:
             records = ws.get_all_records()
+            # If the sheet has no rows (or only header) return empty DF
             if not records:
-                return pd.DataFrame()
+                return pd.DataFrame(columns=["Date", "Amount", "Type", "Notes", "Category"])
 
             df = pd.DataFrame(records)
-            df["Amount"] = pd.to_numeric(df.get("Amount"), errors="coerce").fillna(0)
 
-            for col in ["Date", "Type", "Notes", "Category"]:
+            # Ensure expected columns exist
+            expected_cols = ["Date", "Amount", "Type", "Notes", "Category"]
+            for col in expected_cols:
                 if col not in df.columns:
-                    df[col] = ""
+                    df[col] = ""  # create missing columns with empty values
 
-            df["Category"] = df["Category"].astype(str).strip()
-            df.dropna(subset=["Amount"], inplace=True)
+            # Normalise data types
+            # Amount -> numeric (coerce non-numeric to NaN then fill 0)
+            df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+
+            # Date -> keep as-is (you can convert later if needed)
+            # Type, Notes, Category -> string columns, strip whitespace, lower-case/type normalisation as required
+            df["Type"] = df["Type"].astype(str).str.strip()
+            df["Notes"] = df["Notes"].astype(str).str.strip()
+            df["Category"] = df["Category"].astype(str).str.strip()
+
+            # Drop rows that have no meaningful Amount and no other data (optional)
+            # df = df[(df["Amount"] != 0) | (df["Notes"] != "") | (df["Category"] != "")]
+
             return df
 
         except APIError as e:
-            if e.response.status_code in [429, 503] and attempt < max_retries - 1:
+            # Retry on rate-limits / server errors
+            if getattr(e, "response", None) is not None and e.response.status_code in (429, 503) and attempt < max_retries - 1:
                 delay = (base_delay * 2 ** attempt) + random.uniform(0, 1)
                 time.sleep(delay)
-            else:
-                st.error(f"Error loading sheet '{ws.title}': {e}")
-                return pd.DataFrame()
+                continue
+            st.error(f"Google Sheets API error while loading '{ws.title}': {e}")
+            return pd.DataFrame()
+        except Exception as e:
+            # Catch-all for unexpected errors; do not crash the whole app
+            st.error(f"Unexpected error while loading sheet '{ws.title}': {e}")
+            return pd.DataFrame()
 
+    # Fallback (should not normally reach here)
     return pd.DataFrame()
 
 
