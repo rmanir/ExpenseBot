@@ -1,8 +1,0 @@
-.git
-.gitignore
-.vscode/
-__pycache__/
-.env
-credentials/
-dashboard/
-*.log
