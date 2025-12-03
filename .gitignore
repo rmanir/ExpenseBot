@@ -12,6 +12,7 @@ venv/
 credentials/
 service_account.json
 *.json
+encode.py
 
 # OS files
 .DS_Store

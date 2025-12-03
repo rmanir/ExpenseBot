@@ -16,6 +16,7 @@ import base64
 import time
 import logging
 import threading
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, Dict, Any, List
 
@@ -310,12 +311,15 @@ def format_saved_reply(amount: str, notes: str, date_s: str, category: str, typ:
 
 # ---------- Handlers ----------
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    touch_activity()
     await update.message.reply_text(START_MESSAGE)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    touch_activity()
     await update.message.reply_text(START_MESSAGE)
 
 async def invalid_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    touch_activity()
     await update.message.reply_text(INVALID_MESSAGE)
 
 async def delete_last(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -475,6 +479,16 @@ def run_bot():
     # Start monitor thread
     t = threading.Thread(target=monitor_and_stop, args=(app, start_time), daemon=True)
     t.start()
+
+    # Ensure there is an asyncio event loop for the application to use.
+    # On some Python versions / OS combos asyncio.get_event_loop() raises
+    # RuntimeError if no loop is set in the current thread. Create & set one.
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        log.debug("Created and set new asyncio event loop for main thread.")
 
     # Start polling (blocking). When os._exit runs, process ends.
     log.info("🤖 Bot starting (max %d minutes, idle %d seconds)...", RUN_MINUTES, IDLE_SECONDS)
