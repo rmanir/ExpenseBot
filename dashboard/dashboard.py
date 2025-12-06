@@ -57,7 +57,7 @@ NEED_CATS = {
     "Travel", "Medicine"
 }
 WANT_CATS = {"Entertainment"}
-INVEST_CATS = {"Investment"}
+INVEST_CATS = {"Investment, Emergency Fund"}
 TARGETS = {"Need": 50.0, "Want": 30.0, "Investment": 20.0}
 
 # =========================================================
