@@ -125,7 +125,7 @@ def load_sheet_data(ws):
 # LOAD BUDGET SHEET
 # =========================================================
 @st.cache_data(ttl=600)
-def load_budget_data(spreadsheet, year):
+def load_budget_data(spreadsheet_id, year):
     name = f"Budget {year}"
     try:
         ws = spreadsheet.worksheet(name)
@@ -195,7 +195,8 @@ if not worksheets:
     st.stop()
 
 current_year = datetime.now().year
-target_budget, actuals_df = load_budget_data(spreadsheet, current_year)
+SPREADSHEET_ID = st.secrets["SPREADSHEET_ID"] 
+target_budget, actuals_df = load_budget_data(SPREADSHEET_ID, current_year)
 
 # =========================================================
 # RENDER TABS
