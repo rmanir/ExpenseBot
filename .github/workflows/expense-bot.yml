@@ -1,0 +1,48 @@
+name: Run Expense Tracker Bot
+
+on:
+  schedule:
+    # ========== DAILY SCHEDULE IN UTC ==========
+    # 00:01 IST → 18:31 UTC (previous day)
+    - cron: "30 12 * * *"
+    # 12:01 IST → 06:31 UTC (same day)
+    - cron: "30 5 * * *"
+
+  # Optional: manual trigger from GitHub UI
+  workflow_dispatch:
+
+concurrency:
+  group: expense-telegram-bot
+  cancel-in-progress: true
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements_bot.txt
+
+      - name: Write Google service account file
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          echo "$GOOGLE_SERVICE_ACCOUNT_JSON" > service_account.json
+
+      - name: Run Telegram bot (15 minutes)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GOOGLE_SHEETS_SPREADSHEET_ID: ${{ secrets.GOOGLE_SHEETS_SPREADSHEET_ID }}
+          GOOGLE_SERVICE_ACCOUNT_FILE: service_account.json
+        run: |
+          python github.py
