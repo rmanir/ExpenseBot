@@ -3,7 +3,8 @@ import logging
 import re
 from datetime import datetime
 import asyncio
-
+import base64
+import json
 import pytz
 import gspread
 from google.oauth2.service_account import Credentials
@@ -32,20 +33,36 @@ logging.basicConfig(
 # Load environment variables with error checking
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
-SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service_account.json")
+SERVICE_ACCOUNT_B64 = os.getenv("GOOGLE_SERVICE_ACCOUNT_B64")
 
-# Validate required environment variables
+# File location to write decoded JSON
+SERVICE_ACCOUNT_FILE = "service_account.json"
+
 if not TELEGRAM_BOT_TOKEN:
-    raise RuntimeError("Error: TELEGRAM_BOT_TOKEN is not set")
+    raise RuntimeError("Error: TELEGRAM_BOT_TOKEN is not set.")
 if not SPREADSHEET_ID:
-    raise RuntimeError("Error: GOOGLE_SHEETS_SPREADSHEET_ID is not set")
+    raise RuntimeError("Error: GOOGLE_SHEETS_SPREADSHEET_ID is not set.")
+if not SERVICE_ACCOUNT_B64:
+    raise RuntimeError("Error: GOOGLE_SERVICE_ACCOUNT_B64 (base64 key) is not set.")
 
-# Check service account file exists
-if not os.path.exists(SERVICE_ACCOUNT_FILE):
-    raise RuntimeError(f"Service account JSON not found at: {SERVICE_ACCOUNT_FILE}")
+
+# ---------- Base64 Decode & Write JSON ----------
+def write_service_account_file():
+    """Decode Base64 service account JSON and write to file safely."""
+    try:
+        decoded = base64.b64decode(SERVICE_ACCOUNT_B64)
+        data = json.loads(decoded)
+        with open(SERVICE_ACCOUNT_FILE, "w") as f:
+            json.dump(data, f)
+        logging.info("Service account JSON written successfully.")
+    except Exception as e:
+        logging.error("Failed to decode Base64 service account key.")
+        raise e
+
 
 # Timezone IST
 IST = pytz.timezone("Asia/Kolkata")
+
 
 # --- Category Mapper ---
 CATEGORY_MAP = {
@@ -112,9 +129,11 @@ def categorize(notes: str) -> str:
     return "Others"
 
 
-# --- Google Sheets Setup ---
+# ---------- Google Sheets ----------
 def get_client_and_spreadsheet():
-    """Initialize Google Sheets client and spreadsheet."""
+    """Initialize Google Sheets client using Base64-decoded JSON."""
+    write_service_account_file()
+
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
