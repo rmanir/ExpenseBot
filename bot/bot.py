@@ -73,22 +73,24 @@ CATEGORY_MAP = {
     "milk": "Grocery",
     "tea": "Entertainment",
     "icecream": "Entertainment",
-    "car": "Travel"
+    "car": "Travel",
+    "ef" : "Emergency Fund"
 }
 
 # --- Category Budget ---
 CATEGORY_TARGETS = {
     "Rent": 17000,
-    "Grocery": 9000,
+    "Grocery": 10000,
     "Travel": 8000,
     "Entertainment": 10000,
-    "Investment": 20000,
+    "Investment": 25000,
     "Petrol": 2000,
     "Gas & Water": 1000,
     "Medicine": 3000,
     "EB & EC": 3000,
     "Others": 15000,
-    "Withdrawal": 0
+    "Withdrawal": 0,
+    "Emergency Fund":20000
 }
 
 def categorize(notes: str) -> str:

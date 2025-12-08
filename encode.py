@@ -2,7 +2,7 @@ import base64
 import json
 
 # Load JSON file
-with open("service-account.json", "r") as f:
+with open("service_account.json", "r") as f:
     data = f.read()
 
 # Encode to Base64
