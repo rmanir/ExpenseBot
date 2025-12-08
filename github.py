@@ -429,36 +429,39 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Time-limited bot runner for GitHub Actions ---
 async def run_bot_for(duration_seconds: int = 900):
     """
-    Run the Telegram bot for a fixed duration (default: 900s = 15 minutes),
-    then stop it cleanly.
+    Run the Telegram bot for a fixed duration (default 900s = 15 minutes)
+    using the correct python-telegram-bot v20+ lifecycle.
     """
     try:
-        # Test Google Sheets connection at startup
+        # Test Google Sheets connection
         get_client_and_spreadsheet()
         logging.info("✅ Google Sheets connection successful")
 
-        # Build application
+        # Build bot application
         app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
         # Add handlers
         app.add_handler(CommandHandler("start", start))
-        app.add_handler(
-            MessageHandler(filters.TEXT & (~filters.COMMAND), log_expense)
-        )
+        app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), log_expense))
         app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
         logging.info("🤖 Bot starting (time-limited run)...")
 
-        async with app:
-            await app.start()
-            await app.start_polling()
+        # -------- Correct PTB20 startup sequence --------
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
+        logging.info("📡 Polling started")
 
-            logging.info(f"⏱ Running bot for {duration_seconds} seconds...")
-            try:
-                await asyncio.sleep(duration_seconds)
-            finally:
-                logging.info("🛑 Stopping bot after time limit...")
-                await app.stop()
+        # -------- Run for X seconds --------
+        try:
+            await asyncio.sleep(duration_seconds)
+        finally:
+            # -------- Correct PTB20 shutdown sequence --------
+            logging.info("🛑 Stopping bot...")
+            await app.updater.stop()
+            await app.stop()
+            await app.shutdown()
 
         logging.info("✅ Bot stopped cleanly")
 
