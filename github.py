@@ -72,6 +72,7 @@ CATEGORY_MAP = {
     "gold": "Investment",
     "eb bill": "EB & EC",
     "recharge": "EB & EC",
+    "ec": "EB & EC",
     "internet bill": "EB & EC",
     "withdrawal": "Withdrawal",
     "petrol": "Petrol",
