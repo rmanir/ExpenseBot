@@ -102,6 +102,32 @@ CATEGORY_MAP = {
     "icecream": "Entertainment",
     "car": "Travel",
     "ef": "Emergency Fund",
+    "car service" : "Car Maintainance",
+    "car wash" : "Car Maintainance",
+    "bike service" :"Bike Maintainance",
+    "bike wash":"Bike Maintainance",
+    "car punture":"Car Maintainance",
+    "bike punture":"Bike Maintainance",
+    "air car":"Car Maintainance",
+    "air bike":"Bike Maintainance",
+    "dress":"Grooming",
+    "makeup":"Grooming",
+    "haircut":"Grooming",
+    "trip":"Trip/Vacation",
+    "vacation":"Trip/Vacation",
+    "relatives":"Relatives",
+    "emi":"EMI",
+    "last month debt":"Last Month Debt",
+    "debt":"Last Month Debt",
+    "cc bill":"Last Month Debt",
+    "harwarder":"Home App/Maintainance",
+    "maintainance":"Home App/Maintainance",
+    "yoga":"Self Improvement",
+    "gym":"Self Improvement",
+    "book":"Self Improvement",
+    "gift":"Gifts",
+    "birthday":"Gifts",
+    "moi":"Gifts"
 }
 
 # --- Category Budget ---
@@ -472,5 +498,5 @@ async def run_bot_for(duration_seconds: int = 900):
 
 
 if __name__ == "__main__":
-    # 15 minutes = 900 seconds
-    asyncio.run(run_bot_for(900))
+    # 10 minutes = 600 seconds
+    asyncio.run(run_bot_for(600))
