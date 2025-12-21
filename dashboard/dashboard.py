@@ -196,7 +196,7 @@ if not worksheets:
 
 current_year = datetime.now().year
 SPREADSHEET_ID = st.secrets["SPREADSHEET_ID"] 
-target_budget, actuals_df = load_budget_data(SPREADSHEET_ID, current_year)
+target_budget, actuals_df = load_budget_data(SPREADSHEET_ID)
 
 # =========================================================
 # RENDER TABS
