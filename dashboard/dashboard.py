@@ -75,9 +75,27 @@ def load_category_total():
 def load_budget():
     ws = get_spreadsheet().worksheet("Budget")
     raw = ws.get_all_values()
+
+    if len(raw) < 2:
+        st.warning("Budget sheet is empty.")
+        return pd.Series(dtype=float)
+
     df = pd.DataFrame(raw[1:], columns=raw[0])
-    target = df[df["Month"].str.lower() == "target"].set_index("Month")
-    return target.iloc[0].astype(float)
+
+    # Normalize
+    df["Month"] = df["Month"].astype(str).str.strip().str.lower()
+
+    target = df[df["Month"] == "target"]
+    if target.empty:
+        st.warning("Target row not found in Budget sheet.")
+        return pd.Series(dtype=float)
+
+    target_row = target.iloc[0].drop("Month")
+
+    # Convert safely to numeric
+    target_row = pd.to_numeric(target_row, errors="coerce").fillna(0)
+
+    return target_row
 
 # =========================================================
 # YEAR & MONTH DISCOVERY
