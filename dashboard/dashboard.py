@@ -53,7 +53,7 @@ st.markdown("Your real-time financial overview, powered by Google Sheets.")
 # CATEGORY GROUPS & TARGETS
 # =========================================================
 NEED_CATS = {
-    "Rent", "Grocery", "Petrol", "EB & EC", "Water & Gas", "Gas & Water",
+    "Rent", "Grocery", "Petrol", "EB & EC", "Gas & Water",
     "Travel", "Medicine"
 }
 WANT_CATS = {"Entertainment"}
@@ -125,8 +125,8 @@ def load_sheet_data(ws):
 # LOAD BUDGET SHEET
 # =========================================================
 @st.cache_data(ttl=600)
-def load_budget_data(spreadsheet_id, year):
-    name = f"Budget {year}"
+def load_budget_data(spreadsheet_id):
+    name = f"Budget"
     try:
         ws = spreadsheet.worksheet(name)
         raw = ws.get_all_values()
