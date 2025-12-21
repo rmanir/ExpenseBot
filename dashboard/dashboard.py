@@ -159,25 +159,48 @@ st.divider()
 # =========================================================
 st.subheader("🎯 Budget vs Actual")
 
-budget_df = pd.DataFrame({
-    "Category": budget.index,
-    "Target": budget.values,
-    "Actual": cat_total.loc[budget.index, month].values,
-})
-budget_df["Color"] = budget_df.apply(
-    lambda r: "green" if r["Actual"] <= r["Target"] else "red",
-    axis=1,
-)
+rows = []
+
+for cat in budget.index:
+    target = budget.get(cat, 0)
+
+    # SAFE lookup – default to 0 if missing
+    actual = (
+        cat_total.at[cat, month]
+        if cat in cat_total.index and month in cat_total.columns
+        else 0
+    )
+
+    rows.append({
+        "Category": cat,
+        "Target": target,
+        "Actual": actual,
+        "Color": "green" if actual <= target else "red"
+    })
+
+budget_df = pd.DataFrame(rows)
 
 fig = go.Figure()
-fig.add_bar(x=budget_df["Category"], y=budget_df["Target"], name="Target")
+fig.add_bar(
+    x=budget_df["Category"],
+    y=budget_df["Target"],
+    name="Target",
+    marker_color="lightgray"
+)
 fig.add_bar(
     x=budget_df["Category"],
     y=budget_df["Actual"],
     name="Actual",
-    marker_color=budget_df["Color"],
+    marker_color=budget_df["Color"]
 )
-fig.update_layout(barmode="group")
+
+fig.update_layout(
+    barmode="group",
+    title=f"Budget vs Actual – {month}",
+    xaxis_title="Category",
+    yaxis_title="Amount",
+)
+
 st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
