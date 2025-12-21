@@ -67,67 +67,98 @@ IST = pytz.timezone("Asia/Kolkata")
 # --- Category Mapper ---
 CATEGORY_MAP = {
     "rent": "Rent",
+
+    # Income
+    "salary": "Income",
+    "income": "Income",
+
+    # Investment
     "stock": "Investment",
     "insurance": "Investment",
     "gold": "Investment",
+    "investment": "Investment",
+
+    # Utilities
     "eb bill": "EB & EC",
     "recharge": "EB & EC",
     "ec": "EB & EC",
     "internet bill": "EB & EC",
-    "withdrawal": "Withdrawal",
+    "gas": "Gas & Water",
+    "water": "Gas & Water",
+
+    # Travel
     "petrol": "Petrol",
     "bus": "Travel",
     "irctc": "Travel",
-    "kiger": "Travel",
     "fasttag": "Travel",
-    "gas": "Gas & Water",
-    "water": "Gas & Water",
+    "car": "Travel",
+    "kiger": "Travel",
+
+    # Grocery
     "grocery": "Grocery",
+    "rice": "Grocery",
+    "oil": "Grocery",
+    "milk": "Grocery",
     "flour": "Grocery",
     "chicken": "Grocery",
     "coconut": "Grocery",
+    "flower": "Grocery",
+
+    # Entertainment
     "food": "Entertainment",
     "snacks": "Entertainment",
-    "trip": "Entertainment",
-    "medicine": "Medicine",
-    "medical": "Medicine",
-    "rice": "Grocery",
-    "oil": "Grocery",
-    "flower": "Grocery",
-    "income": "Income",
-    "salary": "Income",
-    "investment": "Investment",
-    "milk": "Grocery",
     "tea": "Entertainment",
     "icecream": "Entertainment",
-    "car": "Travel",
+
+    # Medical
+    "medicine": "Medicine",
+    "medical": "Medicine",
+
+    # Emergency
     "ef": "Emergency Fund",
-    "car service" : "Car Maintainance",
-    "car wash" : "Car Maintainance",
-    "bike service" :"Bike Maintainance",
-    "bike wash":"Bike Maintainance",
-    "car punture":"Car Maintainance",
-    "bike punture":"Bike Maintainance",
-    "air car":"Car Maintainance",
-    "air bike":"Bike Maintainance",
-    "dress":"Grooming",
-    "makeup":"Grooming",
-    "haircut":"Grooming",
-    "trip":"Trip/Vacation",
-    "vacation":"Trip/Vacation",
-    "relatives":"Relatives",
-    "emi":"EMI",
-    "last month debt":"Last Month Debt",
-    "debt":"Last Month Debt",
-    "cc bill":"Last Month Debt",
-    "harwarder":"Home App/Maintainance",
-    "maintainance":"Home App/Maintainance",
-    "yoga":"Self Improvement",
-    "gym":"Self Improvement",
-    "book":"Self Improvement",
-    "gift":"Gifts",
-    "birthday":"Gifts",
-    "moi":"Gifts"
+
+    # Vehicle Maintenance
+    "car service": "Car Maintenance",
+    "car wash": "Car Maintenance",
+    "car puncture": "Car Maintenance",
+    "air car": "Car Maintenance",
+
+    "bike service": "Bike Maintenance",
+    "bike wash": "Bike Maintenance",
+    "bike puncture": "Bike Maintenance",
+    "air bike": "Bike Maintenance",
+
+    # Personal
+    "dress": "Grooming",
+    "makeup": "Grooming",
+    "haircut": "Grooming",
+
+    # Travel & Leisure
+    "trip": "Trip/Vacation",
+    "vacation": "Trip/Vacation",
+
+    # Obligations
+    "emi": "EMI",
+    "cc bill": "Last Month Debt",
+    "debt": "Last Month Debt",
+    "last month debt": "Last Month Debt",
+
+    # Home
+    "hardware": "Home App/Maintenance",
+    "maintenance": "Home App/Maintenance",
+
+    # Self Development
+    "gym": "Self Improvement",
+    "yoga": "Self Improvement",
+    "book": "Self Improvement",
+
+    # Gifts
+    "gift": "Gifts",
+    "birthday": "Gifts",
+    "moi": "Gifts",
+
+    # Relations
+    "relatives": "Relatives"
 }
 
 # --- Category Budget ---
