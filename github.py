@@ -89,6 +89,7 @@ CATEGORY_MAP = {
     # Travel
     "petrol": "Petrol",
     "bus": "Travel",
+    "cab": "Travel",
     "irctc": "Travel",
     "fasttag": "Travel",
     "car": "Travel",
@@ -109,6 +110,7 @@ CATEGORY_MAP = {
     "snacks": "Entertainment",
     "tea": "Entertainment",
     "icecream": "Entertainment",
+    "movie": "Entertainment",
 
     # Medical
     "medicine": "Medicine",
@@ -121,16 +123,17 @@ CATEGORY_MAP = {
     "car service": "Car Maintenance",
     "car wash": "Car Maintenance",
     "car puncture": "Car Maintenance",
-    "air car": "Car Maintenance",
+    "aircar": "Car Maintenance",
 
     "bike service": "Bike Maintenance",
     "bike wash": "Bike Maintenance",
     "bike puncture": "Bike Maintenance",
-    "air bike": "Bike Maintenance",
+    "airbike": "Bike Maintenance",
 
     # Personal
     "dress": "Grooming",
     "makeup": "Grooming",
+    "grooming": "Grooming",
     "haircut": "Grooming",
 
     # Travel & Leisure
