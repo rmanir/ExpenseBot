@@ -164,21 +164,21 @@ CATEGORY_MAP = {
     "relatives": "Relatives"
 }
 
-# --- Category Budget ---
-CATEGORY_TARGETS = {
-    "Rent": 17000,
-    "Grocery": 10000,
-    "Travel": 8000,
-    "Entertainment": 10000,
-    "Investment": 25000,
-    "Petrol": 2000,
-    "Gas & Water": 1000,
-    "Medicine": 3000,
-    "EB & EC": 3000,
-    "Others": 15000,
-    "Withdrawal": 0,
-    "Emergency Fund": 20000,
-}
+# # --- Category Budget ---
+# CATEGORY_TARGETS = {
+#     "Rent": 17000,
+#     "Grocery": 10000,
+#     "Travel": 8000,
+#     "Entertainment": 10000,
+#     "Investment": 25000,
+#     "Petrol": 2000,
+#     "Gas & Water": 1000,
+#     "Medicine": 3000,
+#     "EB & EC": 3000,
+#     "Others": 15000,
+#     "Withdrawal": 0,
+#     "Emergency Fund": 20000,
+# }
 
 
 def categorize(notes: str) -> str:
@@ -257,32 +257,32 @@ def get_or_create_monthly_sheet(date_obj=None):
         return sheet
 
 
-def get_or_create_budget_sheet(year):
-    """Ensure 'Budget <year>' sheet exists with header and target row."""
-    sheet_name = f"Budget {year}"
-    try:
-        _, spreadsheet = get_client_and_spreadsheet()
-        sheet = spreadsheet.worksheet(sheet_name)
-    except gspread.exceptions.WorksheetNotFound:
-        _, spreadsheet = get_client_and_spreadsheet()
-        sheet = spreadsheet.add_worksheet(
-            title=sheet_name, rows=100, cols=len(CATEGORY_TARGETS) + 1
-        )
+# def get_or_create_budget_sheet(year):
+#     """Ensure 'Budget <year>' sheet exists with header and target row."""
+#     sheet_name = f"Budget {year}"
+#     try:
+#         _, spreadsheet = get_client_and_spreadsheet()
+#         sheet = spreadsheet.worksheet(sheet_name)
+#     except gspread.exceptions.WorksheetNotFound:
+#         _, spreadsheet = get_client_and_spreadsheet()
+#         sheet = spreadsheet.add_worksheet(
+#             title=sheet_name, rows=100, cols=len(CATEGORY_TARGETS) + 1
+#         )
 
-        # Headers
-        headers = ["Month"] + list(CATEGORY_TARGETS.keys())
-        sheet.append_row(headers)
+#         # Headers
+#         headers = ["Month"] + list(CATEGORY_TARGETS.keys())
+#         sheet.append_row(headers)
 
-        # Target row
-        targets = ["Target"] + [CATEGORY_TARGETS[cat] for cat in CATEGORY_TARGETS]
-        sheet.append_row(targets)
+#         # Target row
+#         targets = ["Target"] + [CATEGORY_TARGETS[cat] for cat in CATEGORY_TARGETS]
+#         sheet.append_row(targets)
 
-        # Formatting
-        fmt = {"textFormat": {"bold": True}, "horizontalAlignment": "CENTER"}
-        sheet.format("A1:Z1", fmt)
-        sheet.freeze(rows=2)
+#         # Formatting
+#         fmt = {"textFormat": {"bold": True}, "horizontalAlignment": "CENTER"}
+#         sheet.format("A1:Z1", fmt)
+#         sheet.freeze(rows=2)
 
-    return sheet
+#     return sheet
 
 
 # --- Message Parser (Supporting both formats) ---
@@ -426,31 +426,31 @@ async def log_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sheet = get_or_create_monthly_sheet(date_to_log)
         sheet.append_row([amount, date_str, tx_type, notes, category])
 
-        # --- BUDGET FEATURE: Update budget sheet ---
-        budget_year = date_to_log.year
-        budget_sheet = get_or_create_budget_sheet(budget_year)
-        month_name = date_to_log.strftime("%B")
+        # # --- BUDGET FEATURE: Update budget sheet ---
+        # budget_year = date_to_log.year
+        # budget_sheet = get_or_create_budget_sheet(budget_year)
+        # month_name = date_to_log.strftime("%B")
 
-        budget_rows = budget_sheet.get_all_values()
-        header_row = budget_rows[0]
-        existing_months = [row[0] for row in budget_rows[2:]]  # skip 2 header rows
+        # budget_rows = budget_sheet.get_all_values()
+        # header_row = budget_rows[0]
+        # existing_months = [row[0] for row in budget_rows[2:]]  # skip 2 header rows
 
-        col_map = {cat: idx for idx, cat in enumerate(header_row)}
-        col_index = col_map.get(category, col_map.get("Others", 1))
+        # col_map = {cat: idx for idx, cat in enumerate(header_row)}
+        # col_index = col_map.get(category, col_map.get("Others", 1))
 
-        if month_name in existing_months:
-            row_idx = existing_months.index(month_name) + 3  # +3 to skip 2 header rows
-            current_value = budget_sheet.cell(row_idx, col_index + 1).value or "0"
-            try:
-                new_value = float(current_value) + amount
-            except ValueError:
-                new_value = amount
-            budget_sheet.update_cell(row_idx, col_index + 1, new_value)
-        else:
-            row = [""] * len(header_row)
-            row[0] = month_name
-            row[col_index] = amount
-            budget_sheet.append_row(row)
+        # if month_name in existing_months:
+        #     row_idx = existing_months.index(month_name) + 3  # +3 to skip 2 header rows
+        #     current_value = budget_sheet.cell(row_idx, col_index + 1).value or "0"
+        #     try:
+        #         new_value = float(current_value) + amount
+        #     except ValueError:
+        #         new_value = amount
+        #     budget_sheet.update_cell(row_idx, col_index + 1, new_value)
+        # else:
+        #     row = [""] * len(header_row)
+        #     row[0] = month_name
+        #     row[col_index] = amount
+        #     budget_sheet.append_row(row)
 
         # Format amount for display
         if float(amount).is_integer():
