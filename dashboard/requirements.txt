@@ -1,7 +1,0 @@
-streamlit
-pandas
-plotly
-gspread
-google-auth
-python-dotenv
-pytz
