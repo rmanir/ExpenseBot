@@ -83,6 +83,7 @@ CATEGORY_MAP = {
     "recharge": "EB & EC",
     "ec": "EB & EC",
     "internet bill": "EB & EC",
+    "wifi": "EB & EC",
     "gas": "Gas & Water",
     "water": "Gas & Water",
 
@@ -102,7 +103,9 @@ CATEGORY_MAP = {
     "milk": "Grocery",
     "flour": "Grocery",
     "chicken": "Grocery",
+    "mutton": "Grocery",
     "coconut": "Grocery",
+    "fruits": "Grocery",
     "flower": "Grocery",
 
     # Entertainment
@@ -153,6 +156,7 @@ CATEGORY_MAP = {
     # Self Development
     "gym": "Self Improvement",
     "yoga": "Self Improvement",
+    "walking": "Self Improvement",
     "book": "Self Improvement",
 
     # Gifts
