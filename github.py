@@ -117,6 +117,7 @@ CATEGORY_MAP = {
 
     # Medical
     "medicine": "Medicine",
+    "pregnancy": "Medicine",
     "medical": "Medicine",
 
     # Emergency
