@@ -95,6 +95,7 @@ CATEGORY_MAP = {
     "fasttag": "Travel",
     "car": "Travel",
     "kiger": "Travel",
+    "travel": "Travel",
 
     # Grocery
     "grocery": "Grocery",
@@ -114,6 +115,7 @@ CATEGORY_MAP = {
     "tea": "Entertainment",
     "icecream": "Entertainment",
     "movie": "Entertainment",
+    "entertainment": "Entertainment",
 
     # Medical
     "medicine": "Medicine",
