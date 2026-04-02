@@ -71,6 +71,7 @@ CATEGORY_MAP = {
     # Income
     "salary": "Income",
     "income": "Income",
+    "pons": "Income",
 
     # Investment
     "stock": "Investment",
@@ -127,12 +128,12 @@ CATEGORY_MAP = {
 
     # Vehicle Maintenance
     "car service": "Car Maintenance",
-    "car wash": "Car Maintenance",
+    "washcar": "Car Maintenance",
     "car puncture": "Car Maintenance",
     "aircar": "Car Maintenance",
 
     "bike service": "Bike Maintenance",
-    "bike wash": "Bike Maintenance",
+    "washbike": "Bike Maintenance",
     "bike puncture": "Bike Maintenance",
     "airbike": "Bike Maintenance",
 
