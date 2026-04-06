@@ -168,6 +168,11 @@ CATEGORY_MAP = {
     "birthday": "Gifts",
     "moi": "Gifts",
 
+    # Insurance
+    "insurancehealth": "Insurance",
+    "insurancecar": "Insurance",
+    "insurancebike": "Insurance",
+
     # Relations
     "relatives": "Relatives"
 }
