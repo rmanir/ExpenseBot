@@ -458,7 +458,7 @@ def get_weekly_summary(sheet):
 
     for row in rows:
         amount = float(row[0])
-        date = datetime.strptime(row[1], "%Y-%m-%d")
+        date = IST.localize(datetime.strptime(row[1], "%Y-%m-%d"))
         tx_type = row[2]
         category = row[4]
 
