@@ -414,6 +414,78 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
     )
 
+# --- Weekly Summary Logic ---
+from datetime import timedelta
+
+def get_month_totals(sheet):
+    rows = sheet.get_all_values()[1:]
+
+    total_credit = 0
+    total_debit = 0
+
+    for row in rows:
+        amount = float(row[0])
+        tx_type = row[2]
+
+        if tx_type == "Credit":
+            total_credit += amount
+        else:
+            total_debit += amount
+
+    return total_credit, total_debit
+
+def get_weekly_summary(sheet):
+    rows = sheet.get_all_values()[1:]
+
+    now = datetime.now(IST)
+    week_ago = now - timedelta(days=7)
+
+    weekly_expense = 0
+    category_map = {}
+
+    for row in rows:
+        amount = float(row[0])
+        date = datetime.strptime(row[1], "%Y-%m-%d")
+        tx_type = row[2]
+        category = row[4]
+
+        if date >= week_ago and tx_type == "Debit":
+            weekly_expense += amount
+            category_map[category] = category_map.get(category, 0) + amount
+
+    return weekly_expense, category_map
+
+async def send_weekly_summary_once():
+    """Runs once and sends weekly summary"""
+
+    # Initialize bot (same as your run_bot_for)
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    await app.initialize()
+    await app.start()
+
+    sheet = get_or_create_monthly_sheet()
+
+    weekly_expense, category_map = get_weekly_summary(sheet)
+    monthly_credit, monthly_debit = get_month_totals(sheet)
+
+    remaining = max(monthly_credit - monthly_debit, 0)
+
+    msg = "📊 *Weekly Expense Summary*\n\n"
+    msg += f"💸 Weekly Spend: ₹{int(weekly_expense):,}\n"
+    msg += f"🏦 Balance: ₹{int(remaining):,}\n\n"
+    msg += "📂 Category Breakdown:\n"
+
+    for cat, amt in sorted(category_map.items(), key=lambda x: x[1], reverse=True):
+        msg += f"• {cat}: ₹{int(amt):,}\n"
+
+    await app.bot.send_message(
+        chat_id="7833041867",  # ⚠️ replace this
+        text=msg,
+        parse_mode="Markdown"
+    )
+
+    await app.stop()
+    await app.shutdown()
 
 # --- Time-limited bot runner for GitHub Actions ---
 async def run_bot_for(duration_seconds: int = 900):
@@ -460,5 +532,9 @@ async def run_bot_for(duration_seconds: int = 900):
 
 
 if __name__ == "__main__":
-    # 10 minutes = 600 seconds
-    asyncio.run(run_bot_for(600))
+    mode = os.getenv("MODE", "bot")
+
+    if mode == "summary":
+        asyncio.run(send_weekly_summary_once())
+    else:
+        asyncio.run(run_bot_for(600))
