@@ -71,6 +71,7 @@ CATEGORY_MAP = {
     # Income
     "salary": "Income",
     "income": "Income",
+    "pons": "Income",
 
     # Investment
     "stock": "Investment",
@@ -83,6 +84,7 @@ CATEGORY_MAP = {
     "recharge": "EB & EC",
     "ec": "EB & EC",
     "internet bill": "EB & EC",
+    "wifi": "EB & EC",
     "gas": "Gas & Water",
     "water": "Gas & Water",
 
@@ -94,6 +96,7 @@ CATEGORY_MAP = {
     "fasttag": "Travel",
     "car": "Travel",
     "kiger": "Travel",
+    "travel": "Travel",
 
     # Grocery
     "grocery": "Grocery",
@@ -102,7 +105,9 @@ CATEGORY_MAP = {
     "milk": "Grocery",
     "flour": "Grocery",
     "chicken": "Grocery",
+    "mutton": "Grocery",
     "coconut": "Grocery",
+    "fruits": "Grocery",
     "flower": "Grocery",
 
     # Entertainment
@@ -111,9 +116,11 @@ CATEGORY_MAP = {
     "tea": "Entertainment",
     "icecream": "Entertainment",
     "movie": "Entertainment",
+    "entertainment": "Entertainment",
 
     # Medical
     "medicine": "Medicine",
+    "pregnancy": "Medicine",
     "medical": "Medicine",
 
     # Emergency
@@ -121,12 +128,12 @@ CATEGORY_MAP = {
 
     # Vehicle Maintenance
     "car service": "Car Maintenance",
-    "car wash": "Car Maintenance",
+    "washcar": "Car Maintenance",
     "car puncture": "Car Maintenance",
     "aircar": "Car Maintenance",
 
     "bike service": "Bike Maintenance",
-    "bike wash": "Bike Maintenance",
+    "washbike": "Bike Maintenance",
     "bike puncture": "Bike Maintenance",
     "airbike": "Bike Maintenance",
 
@@ -153,12 +160,18 @@ CATEGORY_MAP = {
     # Self Development
     "gym": "Self Improvement",
     "yoga": "Self Improvement",
+    "walking": "Self Improvement",
     "book": "Self Improvement",
 
     # Gifts
     "gift": "Gifts",
     "birthday": "Gifts",
     "moi": "Gifts",
+
+    # Insurance
+    "insurancehealth": "Insurance",
+    "insurancecar": "Insurance",
+    "insurancebike": "Insurance",
 
     # Relations
     "relatives": "Relatives"
