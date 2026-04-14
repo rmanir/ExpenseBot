@@ -108,6 +108,9 @@ CATEGORY_MAP = {
     "mutton": "Grocery",
     "coconut": "Grocery",
     "fruits": "Grocery",
+    "fish": "Grocery",
+    "prawn": "Grocery",
+    "nuts": "Grocery",
     "flower": "Grocery",
 
     # Entertainment
@@ -115,6 +118,8 @@ CATEGORY_MAP = {
     "snacks": "Entertainment",
     "tea": "Entertainment",
     "icecream": "Entertainment",
+    "ice cream": "Entertainment",
+    "juice": "Entertainment",
     "movie": "Entertainment",
     "entertainment": "Entertainment",
 
