@@ -112,6 +112,7 @@ CATEGORY_MAP = {
     "prawn": "Grocery",
     "nuts": "Grocery",
     "flower": "Grocery",
+    "liver": "Grocery",
 
     # Entertainment
     "food": "Entertainment",
