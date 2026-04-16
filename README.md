@@ -137,7 +137,7 @@ And appends a row to the sheet.
 ## 🔒 Security
 
 - 🚫 Don’t commit `.env` or JSON key
-- 🔒 Limit service account scopes to necessary APIs
+- 🔒 Limit service account scopes to necessary 
 
 ---
 
